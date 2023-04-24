@@ -5,7 +5,7 @@ import torch
 from torch.nn.utils.rnn import pad_sequence
 import numpy as np
 
-from utils.bigfile import BigFile
+import utils
 
 
 class VideoPicture:
@@ -16,7 +16,7 @@ class VideoPicture:
         with open(self.vide2frames_file) as f:
             self._vid2frames: Dict[str, List[str]] = eval(f.read())
 
-        self._frame_reader = BigFile(vid_feature_dir)
+        self._frame_reader = utils.BigFile(vid_feature_dir)
         self.frame_feature_dim = self._frame_reader.ndim
 
     def __getitem__(self, frame_id: str) -> np.ndarray:
