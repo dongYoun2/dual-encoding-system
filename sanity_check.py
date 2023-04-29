@@ -71,8 +71,8 @@ def sc_TextEncoder():
 
     vocab_file = 'vocab.json'
     weight_file = 'pretrained_weight.npy'
-    vocab = Vocab.load(vocab_file)
 
+    vocab = Vocab.load(vocab_file)
     pretrained_w = np.load(weight_file)
 
     # '?' and captial letters will be preprocessed by Vocab in TextEncoder

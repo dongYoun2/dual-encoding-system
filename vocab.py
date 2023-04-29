@@ -1,34 +1,19 @@
 import torch
 from itertools import chain
-from collections import Counter
 import json
 import argparse
-import re
 from typing import Dict, List, Tuple
 
 import utils
 
-class Vocab:
-    def __init__(self, word2idx: Dict[str, int]=None, pad='<pad>', start='<s>', end='</s>', unk='<unk>'):
-        self.PAD_TOKEN = pad  # read only
-        self.START_TOKEN = start  # read only
-        self.END_TOKEN = end  # read only
-        self.UNK_TOKEN = unk  # read only
 
-        if word2idx:    # assume given word2idx dict has all needed special tokens
-            self._word2idx = word2idx
-        else:
-            self._word2idx = {pad: 0, start: 1, end: 2, unk: 3}
-
-        self.pad_id = self._word2idx[pad]
-        self.start_id = self._word2idx[start]
-        self.end_id = self._word2idx[end]
-        self.unk_id = self._word2idx[unk]
-
-        self._id2word = {i: w for w, i in self._word2idx.items()}
+class PureVocab:
+    def __init__(self, word_to_idx: Dict[str, int]=None):
+        self.word2idx = dict() if word_to_idx is None else word_to_idx
+        self.idx2word = {i: w for w, i in self.word2idx.items()}
 
     def __getitem__(self, word: str) -> int:
-        return self._word2idx.get(word, self.unk_id)
+        return self.word2idx[word]
 
     def __setitem__(self, key, value):
         """ Raise error, if one tries to edit the Vocab instance.
@@ -36,32 +21,111 @@ class Vocab:
         raise ValueError('vocabulary is readonly')
 
     def __contains__(self, word: str) -> bool:
-        return word in self._word2idx
+        return word in self.word2idx
 
     def __len__(self) -> int:
-        return len(self._word2idx)
+        return len(self.word2idx)
 
     def __repr__(self) -> str:
         return 'Vocabulary[size=%d]' % len(self)
 
     def idx2word(self, w_idx):
-        return self._id2word[w_idx]
+        return self.idx2word[w_idx]
 
     def add(self, word: str) -> int:
         if word not in self:
-            w_idx = self._word2idx[word] = len(self)
-            self._id2word[w_idx] = word
+            w_idx = self.word2idx[word] = len(self)
+            self.idx2word[w_idx] = word
             return w_idx
         else:
             return self[word]
 
-    def words2indices(self, sents: List[str]) -> List[int]:
-        return [self[w] for w in sents]
+    @staticmethod
+    def build(words, freq_cutoff, size):
+        """Build Vocab instance.
+
+        Args:
+            words (List[str]): List of words to use to construct vocab.
+            freq_cutoff (int, optional): If word occurs n < freq_cutoff times, drop the word. Defaults to 0.
+            size (int, optional): Max number of words in vocabulary except for special tokens. Defaults to -1 and it means
+                                        no bound.
+
+        Returns:
+            vocab (Vocab): _description_
+        """
+        vocab = PureVocab()
+        valid_words, _ = utils.word_frequency(words, threshold=freq_cutoff, max_len=size)
+        for word in valid_words:
+            vocab.add(word)
+
+        return vocab
+
+    def save(self, file: str):
+        """Save vocabulary in a json file.
+
+        Args:
+            file (str): Target file path to save vocabulary in a json format.
+        """
+        with open(file, 'w') as f:
+            json.dump(self.word2idx, f, indent=2)
+
+    @staticmethod
+    def load(file: str):
+        """Load vocabulary from a json file.
+
+        Args:
+            file (str): json file path where to load vocabulary from.
+
+        Returns:
+            vocab (Vocab): The loaded vocabulary.
+        """
+        with open(file, 'r') as f:
+            word_to_idx = json.load(f)
+
+        return PureVocab(word_to_idx)
+
+
+class TagVocab(PureVocab):
+    def __init__(self, word_to_idx: Dict[str, int] = None):
+        super(TagVocab, self).__init__(word_to_idx)
+
+class Vocab(PureVocab):
+    PAD_TOKEN = '<pad>'  # read only
+    START_TOKEN = '<s>'  # read only
+    END_TOKEN = '</s>'  # read only
+    UNK_TOKEN = '<unk>'  # read only
+
+    PAD_IDX = 0
+    START_IDX = 1
+    END_IDX = 2
+    UNK_IDX = 3
+
+    def __init__(self, word_to_idx: Dict[str, int]=None):
+        if word_to_idx is None:
+            word2idx = {
+                Vocab.PAD_TOKEN: Vocab.PAD_IDX,
+                Vocab.START_TOKEN: Vocab.START_IDX,
+                Vocab.END_TOKEN: Vocab.END_IDX,
+                Vocab.UNK_TOKEN: Vocab.UNK_IDX,
+            }
+        else:
+            word2idx = word_to_idx
+
+        super(Vocab, self).__init__(word2idx)
+
+    def __getitem__(self, word: str) -> int:
+        """overrides PureVocab '__getitem__' method
+        """
+        return self.word2idx.get(word, Vocab.UNK_IDX)
+
+    def words2indices(self, sent: List[str]) -> List[int]:
+        return [self[w] for w in sent]
 
     def indices2words(self, w_indices: List[int]) -> List[str]:
-        return [self._id2word[idx] for idx in w_indices]
+        return [self.idx2word[idx] for idx in w_indices]
 
-    def pad_sent_batch(self, sents, desc=True):
+    @staticmethod
+    def pad_sent_batch(sents, desc=True):
         """Pad sentence batch.
 
         Args:
@@ -82,7 +146,7 @@ class Vocab:
 
         sents_padded = []
         for s, l in zip(sents, lengths):
-            padded_s = s[:] + [self.PAD_TOKEN] * (max_len - l)
+            padded_s = s[:] + [Vocab.PAD_TOKEN] * (max_len - l)
             sents_padded.append(padded_s)
 
         assert len(sents_padded) == len(lengths)
@@ -110,71 +174,42 @@ class Vocab:
 
         return sents_tensor, true_lens
 
-    @classmethod
-    def build(cls, sents: List[List[str]], freq_cutoff=0, vocab_size=-1):
-        """Build Vocab instance.
-
-        Args:
-            sents (List[List[str]]): List of sentences. Each sentence is list of words.
-            freq_cutoff (int, optional): If word occurs n < freq_cutoff times, drop the word. Defaults to 0.
-            vocab_size (int, optional): Max number of words in vocabulary except for special tokens. Defaults to -1 and it means
-                                        no bound.
-
-        Returns:
-            vocab (Vocab): _description_
+    @staticmethod
+    def build(words, freq_cutoff=0, size=-1, *, with_print=False):
+        """overrides PureVocab 'build' static method
         """
-        vocab = cls()
-        word_freq = Counter(chain(*sents))
-        valid_words = [w for w, v in word_freq.items() if v >= freq_cutoff]
-
-        print(f'number of word types: {len(word_freq)}, number of word types w/ frequency >= {freq_cutoff}: {len(valid_words)}')
-
-        top_k_words = sorted(valid_words, key=lambda w: word_freq[w], reverse=True)[:vocab_size]
-        for word in top_k_words:
+        vocab = Vocab()
+        valid_words, _ = utils.word_frequency(words, threshold=freq_cutoff, max_len=size)
+        for word in valid_words:
             vocab.add(word)
 
         return vocab
 
-    def save(self, file: str):
-        """Save vocabulary in a json file.
-
-        Args:
-            file (str): Target file path to save vocabulary in a json format.
-        """
-        with open(file, 'w') as f:
-            json.dump(self._word2idx, f, indent=2)
-
-    @classmethod
-    def load(cls, file: str):
-        """Load vocabulary from a json file.
-
-        Args:
-            file (str): json file path where to load vocabulary from.
-
-        Returns:
-            vocab (Vocab): The loaded vocabulary.
+    @staticmethod
+    def load(file: str):
+        """overrides PureVocab 'load' static method
         """
         with open(file, 'r') as f:
-            word2idx = json.load(f)
+            word_to_idx = json.load(f)
 
-        return cls(word2idx)
+        return Vocab(word_to_idx)
 
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('cap_file', type=str, help='caption file path')
-    parser.add_argument('vocab_file', type=str, help='json file path to save vocab')
+    parser.add_argument('vocab_file', type=str, help='json file path to save vocabulary')
     parser.add_argument('--size', type=int, default=50000, help='max vocab size')
     parser.add_argument('--freq_cutoff', type=int, default=5, help='frequency cutoff')
 
     args = parser.parse_args()
 
-    preprocess = lambda caption: re.sub(r"[^A-Za-z0-9]", " ", caption).lower()
+    # remove all characters except english alphabets and numbers.
+    preprocess_fn = lambda cap: utils.clean_text(cap).split()
 
-    _, captions = utils.read_captions(args.cap_file, preprocess_fn=preprocess)
-    captions = [c.split() for c in captions]    # TODO: 나중에 다른 곳에서도 이걸 계속 한다면 수정 필요
-    vocab = Vocab.build(captions, args.freq_cutoff, args.size)
+    _, preprocessed_caps = utils.read_captions(args.cap_file, process_fn=preprocess_fn)  # preprocessed_caps: List[List[str]]
+    vocab = Vocab.build(chain(*preprocessed_caps), args.freq_cutoff, args.size, with_print=True)
     print(f'generated vocabulary, total {len(vocab)} words')
 
     vocab.save(args.vocab_file)
-    print(f'vocabulary save to {args.vocab_file}')
+    print(f'vocabulary saved to {args.vocab_file}')
