@@ -2,3 +2,6 @@ __pycache__/
 
 data/
 vocab.json
+pretraine_weight.npy
+tag_vocab.json
+video_tag.txt

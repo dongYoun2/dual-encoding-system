@@ -1,0 +1,13 @@
+name: dual-encoding-system
+channels:
+  - pytorch
+  - conda-forge
+  - defaults
+dependencies:
+  - python=3.8
+  - pytorch=2.0
+  - torchvision=0.13
+  - numpy=1.23
+  - tqdm=4.65
+  - pip:
+    - nltk==3.8
