@@ -3,7 +3,7 @@ from itertools import chain
 from typing import Dict, Tuple, List
 from collections import defaultdict
 
-from vocab import TagVocab
+from dataset import VideoTag
 import utils
 
 
@@ -22,7 +22,7 @@ if __name__ == '__main__':
     to_lemmas = lambda cap: utils.to_lemmas(utils.clean_text(cap))
 
     cap_ids, processed_caps = utils.read_captions(args.cap_file, process_fn=to_lemmas, with_tqdm=True)    # processed_caps: List[List[str]]
-    tag_vocab = TagVocab.build(chain(*processed_caps), args.vocab_freq_cutoff, args.vocab_size)
+    tag_vocab = VideoTag.build_vocab(chain(*processed_caps), args.vocab_freq_cutoff, args.vocab_size)
     print(f'generated tag vocabulary, total {len(tag_vocab)} words')
 
     tag_vocab.save(args.tag_vocab_file)
@@ -37,7 +37,9 @@ if __name__ == '__main__':
     vid_id_to_lemma_cnt: Dict[str, List[Tuple[str, int]]] = dict()
     for v_id, lemmas in vid_id_to_lemmas.items():
         valid_lemmas, counts = utils.word_frequency(lemmas, args.label_freq_cutoff)
-        vid_id_to_lemma_cnt[v_id] = sorted(list(zip(valid_lemmas, counts)), reverse=True)
+        lemma_cnts = list(zip(valid_lemmas, counts))
+        valid_lemma_cnts = [(lemma, cnt) for lemma, cnt in lemma_cnts if lemma in tag_vocab]
+        vid_id_to_lemma_cnt[v_id] = sorted(valid_lemma_cnts, key=lambda e: e[1], reverse=True)
 
     with open(args.annotation_file, 'w') as f:
         for v_id, lemma_cnts in vid_id_to_lemma_cnt.items():

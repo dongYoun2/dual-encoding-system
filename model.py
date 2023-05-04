@@ -8,7 +8,6 @@ from torch.nn.utils.rnn import pad_packed_sequence, pack_padded_sequence
 import utils
 from measure import cosine_similarity, jaccard_similarity
 from vocab import Vocab
-from video_picture import VideoPicture
 
 
 class RNNEmbedding(nn.Module):
@@ -82,11 +81,11 @@ class CNNEmbedding(nn.Module):
 
 
 class VideoEncoder(nn.Module):
-    def __init__(self, video_pic: VideoPicture, rnn_hidden_size, cnn_out_channels_list, cnn_filter_size_list):
+    def __init__(self, frame_feature_dim, rnn_hidden_size, cnn_out_channels_list, cnn_filter_size_list):
         """Video Encoder.
 
         Args:
-            video_pic (VideoPicture): _description_
+            frame_feature_dim (int): frame feature dimension
             rnn_hidden_size (int): Hidden_size of rnn to use in RNNEmbedding.
             cnn_out_channels_list (List[int]): List of the number of kernel for each CNNEmbedding.Length has to be same as
                                                'cnn_filter_size_list' length.
@@ -95,23 +94,29 @@ class VideoEncoder(nn.Module):
         """
         super(VideoEncoder, self).__init__()
 
-        self.video_pic = video_pic
-        self.rnn_embedding = RNNEmbedding(self.video_pic.frame_feature_dim, rnn_hidden_size)
+        self.frame_feature_dim = frame_feature_dim
+        self.rnn_hidden_size = rnn_hidden_size
+        self.cnn_out_channels_list = cnn_out_channels_list
+        self.cnn_filter_size_list = cnn_filter_size_list
+
+        self.out_dim = frame_feature_dim + 2 * rnn_hidden_size + sum(cnn_out_channels_list)
+
+        self.rnn_embedding = RNNEmbedding(frame_feature_dim, rnn_hidden_size)
         self.cnn_embedding = CNNEmbedding(2*rnn_hidden_size, cnn_out_channels_list, cnn_filter_size_list)
 
-    def forward(self, video_ids: List[str]):
-        """_summary_
+
+
+    def forward(self, x: torch.Tensor, true_lens: List[int]):
+        """VideoEncoder's forward
 
         Args:
-            video_ids (List[str]): List of video ids.
+            x (tenosr): shape (B, L, frame_feature_dim)
+            true_lens (List[int]): list of video's true length (video's # of frames)
 
         Returns:
             video_emb (torch.Tensor): Video encoding (batched). Shape (B, F + H_out + C_out), where F == frame_feature_dim, H_out ==
                             2*rnn_hidden_size, C_out == sum(cnn_out_channels_list). Denoted as pi(v) in the paper.
         """
-        # x: (B, L, frame_feature_dim)
-        x, true_lens = self.video_pic.to_input_tensor_batch(video_ids, device=self.device)
-
         # Level 1
         # 'feature_emb' is denoted as f_v^1 in the paper
         # global average pooling
@@ -136,11 +141,11 @@ class VideoEncoder(nn.Module):
 
 
 class TextEncoder(nn.Module):
-    def __init__(self, vocab: Vocab, rnn_hidden_size, cnn_out_channels_list, cnn_filter_size_list, pretrained_weight=None, word_embedding_dim=500):
+    def __init__(self, vocab_size, rnn_hidden_size, cnn_out_channels_list, cnn_filter_size_list, *, pretrained_weight=None, word_embedding_dim=500):
         """Text encoder.
 
         Args:
-            vocab (Vocab): Vocab instance
+            vocab_size (int): vocab size
             rnn_hidden_size (int): Hidden_size of rnn to use in RNNEmbedding.
             cnn_out_channels_list (List[int]): List of the number of kernel for each CNNEmbedding. Length has to be same as
                                                'cnn_filter_size_list' length.
@@ -152,30 +157,34 @@ class TextEncoder(nn.Module):
         """
         super(TextEncoder, self).__init__()
 
-        self.vocab = vocab
-        self.vocab_size = len(vocab)
+        self.vocab_size = vocab_size
+        self.rnn_hidden_size = rnn_hidden_size
+        self.cnn_out_channels_list = cnn_out_channels_list
+        self.cnn_filter_size_list = cnn_filter_size_list
+        self.pretrained_weight = pretrained_weight
 
         if pretrained_weight is None:
-            self.embedding = nn.Embedding(self.vocab_size, word_embedding_dim, padding_idx=vocab.PAD_IDX)
+            self.embedding = nn.Embedding(self.vocab_size, word_embedding_dim, padding_idx=Vocab.PAD_IDX)
             self.embedding.weight.data.uniform_(-0.1, 0.1)
         else:
-            self.embedding = nn.Embedding.from_pretrained(torch.tensor(pretrained_weight), freeze=False, padding_idx=vocab.PAD_IDX)
+            self.embedding = nn.Embedding.from_pretrained(torch.tensor(pretrained_weight), freeze=False, padding_idx=Vocab.PAD_IDX)
 
         self.rnn_embedding = RNNEmbedding(self.embedding.embedding_dim, rnn_hidden_size)
         self.cnn_embedding = CNNEmbedding(2*rnn_hidden_size, cnn_out_channels_list, cnn_filter_size_list)
 
-    def forward(self, sents: List[List[str]]):
+        self.out_dim = vocab_size + 2 * rnn_hidden_size + sum(cnn_out_channels_list)
+
+    def forward(self, x: torch.Tensor, true_lens: List[int]):
         """_summary_
 
         Args:
-            sents (List[List[str]]): Sentence batch. Each sentence is already padded with pad token.
+            x (tensor): shape (B, L)
 
         Returns:
             text_emb: Text encoding (batched). Shape (B, V + H_out + C_out), where V == vocab_size, H_out ==
                            2*rnn_hidden_size, C_out == sum(cnn_out_channels_list). Denoted as pi(s) in the paper.
         """
-        x, true_lens = self.vocab.to_input_tensor_batch(sents, self.device)  # x: (B, L)
-        one_hot = F.one_hot(x, self.vocab_size)   # (B, L, V)
+        one_hot = F.one_hot(x, num_classes=self.vocab_size).float()   # (B, L, V)
 
         # Level 1
         # 'bow' is denoted as f_s^1 in the paper
@@ -232,286 +241,282 @@ class LinearProjection(nn.Module):
     def __init__(self, in_dim, out_dim, dropout_rate=0.2):
         super(LinearProjection, self).__init__()
 
-        self.linear = nn.Sequential(
-            nn.Linear(in_dim, out_dim),
-            nn.Dropout(dropout_rate),
-            nn.BatchNorm1d(out_dim),
-        )
+        self.linear = nn.Linear(in_dim, out_dim)
+        self.dropout = nn.Dropout(dropout_rate)
+        self.batch_norm = nn.BatchNorm1d(out_dim)
+
+        self._init_weight()
+
+    def _init_weight(self):
+        nn.init.xavier_uniform_(self.linear.weight)
 
     def forward(self, x):
-        return self.linear(x)
+        out = self.linear(x)
+        out = self.dropout(out)
+        out = self.batch_norm(out)
+
+        return out
+
 
 class LatentSpace(nn.Module):
-    def __init__(self):
-        super(LatentSpace, self).__init__()
-        self.sim = cosine_similarity
-        self.loss = TripletMarginLoss()
+    def __init__(self, embed_dim, video_in_dim, video_dp_rate, text_in_dim, text_dp_rate):
+        super().__init__()
 
-    def forward(self, x1, x2):
-        sim = self.sim(x1, x2)
+        self.embed_dim = embed_dim
+        self.video_in_dim = video_in_dim
+        self.video_dp_rate = video_dp_rate
+        self.text_in_dim = text_in_dim
+        self.text_dp_rate = text_dp_rate
+
+        self.video_projection = LinearProjection(video_in_dim, embed_dim, video_dp_rate)
+        self.text_projection = LinearProjection(text_in_dim, embed_dim, text_dp_rate)
+
+        self.sim_fn = cosine_similarity
+        self.loss_fn = TripletMarginLoss()
+
+    def project_video(self, video_feat, l2_normalize=True): # (B_v, video_in_dim)
+        out = self.video_projection(video_feat)
+        if l2_normalize:
+            out = utils.l2_normalize(out)
+
+        return out  # (B_v, E_lat)
+
+    def project_text(self, text_emb, l2_normalize=True):    # (B_t, text_in_dim)
+        out = self.text_projection(text_emb)
+        if l2_normalize:
+            out = utils.l2_normalize(out)
+
+        return out  # (B_v, E_lat)
+
+    def compute_sim(self, video_feat, text_feat):   # (B_v, video_in_dim), (B_t, text_in_dim)
+        video_emb = self.project_video(video_feat)
+        text_emb = self.project_text(text_feat)
+
+        sim = self.sim_fn(video_emb, text_emb)  # (B_v, B_t)
 
         return sim, sim.T
 
-    def forward_loss(self, x1, x2):
-        logits, logits_T = self.forward(x1, x2)
-        loss = self.loss(logits) + self.loss(logits_T)
+    # compute loss (in training both videos and captions batch size is same)
+    def compute_loss(self, video_feat, text_feat):
+        logits, logits_T = self.compute_sim(video_feat, text_feat)
+        loss = self.loss_fn(logits) + self.loss_fn(logits_T)
 
         return loss
 
 
 class ConceptSpace(nn.Module):
-    def __init__(self):
-        super(ConceptSpace, self).__init__()
-        self.sim = jaccard_similarity
-        self.loss_fn1 = nn.BCEWithLogitsLoss(reduction='sum')
+    def __init__(self, embed_dim, video_in_dim, video_dp_rate, text_in_dim, text_dp_rate):
+        super().__init__()
+
+        self.embed_dim = embed_dim
+        self.video_in_dim = video_in_dim
+        self.video_dp_rate = video_dp_rate
+        self.text_in_dim = text_in_dim
+        self.text_dp_rate = text_dp_rate
+
+        self.video_projection = LinearProjection(video_in_dim, embed_dim, video_dp_rate)
+        self.text_projection = LinearProjection(text_in_dim, embed_dim, text_dp_rate)
+
+        self.sim_fn = jaccard_similarity
+        self.loss_fn1 = nn.BCEWithLogitsLoss(reduction='mean')
+        # self.loss_fn1 = nn.BCEWithLogitsLoss(reduction='sum')
         self.loss_fn2 = TripletMarginLoss()
 
-    def forward(self, x1, x2):   # each input taken only linear projection
-        out1 = F.sigmoid(x1)
-        out2 = F.sigmoid(x2)
-        sim = self.sim(out1, out2)
+    def project_video(self, video_feat, to_prob=True): # (B_v, video_in_dim)
+        out = self.video_projection(video_feat)
+        if to_prob:
+            out = F.sigmoid(out)
+
+        return out  # (B_v, V_tag)
+
+    def project_text(self, text_emb, to_prob=True):    # (B_t, text_in_dim)
+        out = self.text_projection(text_emb)
+        if to_prob:
+            out = F.sigmoid(out)
+
+        return out  # (B_v, V_tag)
+
+    def compute_sim(self, video_feat, text_feat):   # (B_v, video_in_dim), (B_t, text_in_dim)
+        video_prob = self.project_video(video_feat)
+        text_prob = self.project_text(text_feat)
+
+        sim = self.sim_fn(video_prob, text_prob)  # (B_v, B_t)
 
         return sim, sim.T
 
-    def forward_loss(self, x1, x2, y):   # each input taken only linear projection
-        loss1 = self.loss_fn1(x1, y) + self.loss_fn1(x2, y)
+    # compute loss (in training both videos and captions batch size is same)
+    def compute_loss(self, video_feat, text_feat, tags):
+        video_out = self.project_video(video_feat, to_prob=False)
+        text_out = self.project_text(text_feat, to_prob=False)
+        loss1 = self.loss_fn1(video_out, tags) + self.loss_fn1(text_out, tags)
 
-        sim, sim_T = self.forward(x1, x2)
-        loss2 = self.loss_fn2(sim) + self.loss_fn2(sim_T)
+        logits, logits_T = self.compute_sim(video_feat, text_feat)  # (B, B), (B, B)
+        loss2 = self.loss_fn2(logits) + self.loss_fn2(logits_T)
 
-        total_loss = loss1 + loss2
+        loss = loss1 + loss2
 
-        return total_loss
+        return loss
 
 
 class LatentDualEncoding(nn.Module):
     def __init__(self,
                 embed_dim,
                 # video
-                video_pic: VideoPicture,
+                frame_feature_dim,
                 vid_rnn_hidden_size,
                 vid_cnn_out_channels_list,
                 vid_cnn_filter_size_list,
+                vid_dp_rate,
                 # text
-                vocab: Vocab,
+                vocab_size,
                 text_rnn_hidden_size,
                 text_cnn_out_channels_list,
                 text_cnn_filter_size_list,
+                text_dp_rate,
                 pretrained_weight=None,
                 ):
         super(LatentDualEncoding, self).__init__()
 
-        self.video_encoder = VideoEncoder(video_pic, vid_rnn_hidden_size, vid_cnn_out_channels_list, vid_cnn_filter_size_list)
-        self.text_encoder = TextEncoder(vocab,text_rnn_hidden_size, text_cnn_out_channels_list, text_cnn_filter_size_list, pretrained_weight=pretrained_weight)
+        self.video_encoder = VideoEncoder(frame_feature_dim, vid_rnn_hidden_size, vid_cnn_out_channels_list, vid_cnn_filter_size_list)
+        self.text_encoder = TextEncoder(vocab_size, text_rnn_hidden_size, text_cnn_out_channels_list, text_cnn_filter_size_list, pretrained_weight=pretrained_weight)
+        self.common_space = LatentSpace(embed_dim, self.video_encoder.out_dim, vid_dp_rate, self.text_encoder.out_dim, text_dp_rate)
 
-        self.video_projection = LinearProjection(in_features=vid_cnn_out_channels_list[-1], out_features=embed_dim)
-        self.text_projection = LinearProjection(in_features=text_cnn_out_channels_list[-1], out_features=embed_dim)
+    def encode_video(self, video, true_lens, l2_normalize=True):      # (B, L, frame_feature_dim)
+        out = self.video_encoder(video, true_lens)
+        out = self.common_space.project_video(out, l2_normalize=l2_normalize)
 
-        self.common_space = LatentSpace()
+        return out  # (B_v, embed_dim)
 
-    def encode_video(self, video_ids: List[str], l2_normalize=True) -> torch.Tensor:
-        vid_emb = self.video_encoder(video_ids)
-        vid_emb = self.video_projection(vid_emb)
+    def encode_text(self, text, true_lens, l2_normalize=True):  # (B, L)
+        out = self.text_encoder(text, true_lens)
+        out = self.common_space.project_text(out, l2_normalize=l2_normalize)
 
-        if l2_normalize:
-            vid_emb = utils.l2_normalize(vid_emb)
+        return out  # (B_t, embed_dim)
 
-        return vid_emb
+    # calc logits (cos sim. as logits)
+    def forward(self, video, vid_true_lens, text, text_true_lens):
+        vid_out = self.video_encoder(video, vid_true_lens)
+        text_out = self.text_encoder(text, text_true_lens)
+        logits, logits_T = self.common_space.compute_sim(vid_out, text_out)
 
-    def encode_text(self, sents: List[List[str]], l2_normalize=True) -> torch.Tensor:
-        text_emb = self.text_encoder(sents)
-        text_emb = self.text_projection(text_emb)
+        return logits, logits_T # (B_v, B_t), (B_t, B_v)
 
-        if l2_normalize:
-            text_emb = utils.l2_normalize(text_emb)
-
-        return text_emb
-
-    def encode(self, video_ids: List[str], sents: List[List[str]], l2_normalize=True):
-        vid_emb = self.encode_video(video_ids, l2_normalize=l2_normalize)
-        text_emb = self.encode_text(sents, l2_normalize=l2_normalize)
-
-        return vid_emb, text_emb
-
-    def forward(self, video_ids: List[str], sents: List[List[str]]):  # calc logits (cos sim. as logits)
-        vid_emb, text_emb = self.encode(video_ids, sents)   # (B_v, E), (B_t, E)
-        logits, logits_T = self.common_space(vid_emb, text_emb)
-
-        return logits, logits_T
-
-    # compute loss (in training both videos and captions batch size is same)
-    def forward_loss(self, video_ids: List[str], captions: List[List[str]]):
-        vid_emb, cap_emb = self.encode(video_ids, captions)   # (B, E), (B, E)
-        loss =  self.common_space.forward_loss(vid_emb, cap_emb)
+    def forward_loss(self, video, vid_true_lens, text, text_true_lens):
+        vid_out = self.video_encoder(video, vid_true_lens)
+        text_out = self.text_encoder(text, text_true_lens)
+        loss = self.common_space.compute_loss(vid_out, text_out)
 
         return loss
 
+    @property
+    def device(self) -> torch.device:
+        return self.video_encoder.device
 
-class ConceptDualEncoding(nn.Module):
+
+class HybridDualEncoding(nn.Module):
     def __init__(self,
-                tag_vocab_size,
-                # video
-                video_pic: VideoPicture,
-                vid_rnn_hidden_size,
-                vid_cnn_out_channels_list,
-                vid_cnn_filter_size_list,
-                # text
-                vocab: Vocab,
-                text_rnn_hidden_size,
-                text_cnn_out_channels_list,
-                text_cnn_filter_size_list,
-                pretrained_weight=None,
-                ):
-        super(ConceptDualEncoding, self).__init__()
-
-        self.video_encoder = VideoEncoder(video_pic, vid_rnn_hidden_size, vid_cnn_out_channels_list, vid_cnn_filter_size_list)
-        self.text_encoder = TextEncoder(vocab,text_rnn_hidden_size, text_cnn_out_channels_list, text_cnn_filter_size_list, pretrained_weight=pretrained_weight)
-
-        self.video_projection = LinearProjection(in_features=vid_cnn_out_channels_list[-1], out_features=tag_vocab_size)
-        self.text_projection = LinearProjection(in_features=text_cnn_out_channels_list[-1], out_features=tag_vocab_size)
-
-        self.common_space = ConceptSpace()
-
-    def encode_video(self, video_ids: List[str], to_prob=False) -> torch.Tensor:
-        out = self.video_encoder(video_ids)
-        out = self.video_projection(out)
-
-        if to_prob:
-            out = F.sigmoid(out)
-
-        return out
-
-    def encode_text(self, sents: List[List[str]], to_prob=False) -> torch.Tensor:
-        out = self.text_encoder(sents)
-        out = self.text_projection(out)
-
-        if to_prob:
-            out = F.sigmoid(out)
-
-        return out
-
-    def encode(self, video_ids: List[str], sents: List[List[str]], to_prob=False):
-        vid_emb = self.encode_video(video_ids, to_prob=to_prob)
-        text_emb = self.encode_text(sents, to_prob=to_prob)
-
-        return vid_emb, text_emb
-
-    def forward(self, video_ids: List[str], sents: List[List[str]]):  # calc logits (jaccard sim. as logits)
-        # (B_v, V_tag), (B_t, V_tag), where V_tag == tag_vocab_size
-        vid_emb, text_emb = self.encode(video_ids, sents)
-        logits, logits_T = self.common_space(vid_emb, text_emb)
-
-        return logits, logits_T
-
-    # TODO: params 좀 더 일관되게 다 tensor type으로 변경하기
-    # compute loss (in training both videos and captions batch size is same)
-    def forward_loss(self, video_ids: List[str], captions: List[List[str]], tags: torch.Tensor):
-        # (B, V_tag), (B, V_tag)
-        vid_emb, cap_emb = self.encode(video_ids, captions)
-
-        loss = self.common_space.forward_loss(vid_emb, cap_emb, tags)
-
-        return loss
-
-
-class HybridDualEncoding:
-    def __init__(self,
-                embed_dim_latent,  # latent space dim
+                embed_dim_lat,  # latent space dim
                 tag_vocab_size,
                 alpha,
                 # video
-                video_pic: VideoPicture,
+                frame_feature_dim,
                 vid_rnn_hidden_size,
                 vid_cnn_out_channels_list,
                 vid_cnn_filter_size_list,
+                vid_dp_rate_lat,
+                vid_dp_rate_con,
                 # text
-                vocab: Vocab,
+                vocab_size,
                 text_rnn_hidden_size,
                 text_cnn_out_channels_list,
                 text_cnn_filter_size_list,
+                text_dp_rate_lat,
+                text_dp_rate_con,
                 pretrained_weight=None,
                 ):
         super(HybridDualEncoding, self).__init__()
 
-        self.video_encoder = VideoEncoder(video_pic, vid_rnn_hidden_size, vid_cnn_out_channels_list, vid_cnn_filter_size_list)
-        self.text_encoder = TextEncoder(vocab,text_rnn_hidden_size, text_cnn_out_channels_list, text_cnn_filter_size_list, pretrained_weight=pretrained_weight)
-
-        self.video_projection_lat = LinearProjection(in_features=vid_cnn_out_channels_list[-1], out_features=embed_dim_latent)
-        self.text_projection_lat = LinearProjection(in_features=text_cnn_out_channels_list[-1], out_features=embed_dim_latent)
-        self.latent_space = LatentSpace()
-
-        self.video_projection_con = LinearProjection(in_features=vid_cnn_out_channels_list[-1], out_features=tag_vocab_size)
-        self.text_projection_con = LinearProjection(in_features=text_cnn_out_channels_list[-1], out_features=tag_vocab_size)
-        self.concept_space = ConceptSpace()
-
+        self.embed_dim_lat = embed_dim_lat
+        self.tag_vocab_size = tag_vocab_size
         self.alpha = alpha
 
+        self.video_encoder = VideoEncoder(frame_feature_dim, vid_rnn_hidden_size, vid_cnn_out_channels_list, vid_cnn_filter_size_list)
+        self.text_encoder = TextEncoder(vocab_size, text_rnn_hidden_size, text_cnn_out_channels_list, text_cnn_filter_size_list, pretrained_weight=pretrained_weight)
+        self.space_lat = LatentSpace(embed_dim_lat, self.video_encoder.out_dim, vid_dp_rate_lat, self.text_encoder.out_dim, text_dp_rate_lat)
+        self.space_con = ConceptSpace(tag_vocab_size, self.video_encoder.out_dim, vid_dp_rate_con, self.text_encoder.out_dim, text_dp_rate_con)
 
-    def encode_video_lat(self, video_ids: List[str], l2_normalize=True) -> torch.Tensor:
-        vid_emb = self.video_encoder(video_ids)
-        vid_emb = self.video_projection_lat(vid_emb)
+    def encode_video(self, video, true_lens, l2_normalize_lat=True, to_prob_con=True):      # (B, L, frame_feature_dim)
+        out = self.video_encoder(video, true_lens)
+        out_lat = self.space_lat.project_video(out, l2_normalize=l2_normalize_lat)
+        out_con = self.space_con.project_video(out, to_prob=to_prob_con)
 
-        if l2_normalize:
-            vid_emb = utils.l2_normalize(vid_emb)
+        return out_lat, out_con  # (B_v, embed_dim_lat), (B_v, tag_vocab_size)
 
-        return vid_emb
+    def encode_text(self, text, true_lens, l2_normalize_lat=True, to_prob_con=True):   # (B, L)
+        out = self.text_encoder(text, true_lens)
+        out_lat = self.space_lat.project_text(out, l2_normalize=l2_normalize_lat)
+        out_con = self.space_con.project_text(out, to_prob=to_prob_con)
 
-    def encode_text_lat(self, sents: List[List[str]], l2_normalize=True) -> torch.Tensor:
-        text_emb = self.text_encoder(sents)
-        text_emb = self.text_projection_lat(text_emb)
+        return out_lat, out_con  # (B_t, embed_dim_lat), (B_t, tag_vocab_size)
 
-        if l2_normalize:
-            text_emb = utils.l2_normalize(text_emb)
+    def forward(self, video, vid_true_lens, text, text_true_lens):
+        vid_out = self.video_encoder(video, vid_true_lens)
+        text_out = self.text_encoder(text, text_true_lens)
 
-        return text_emb
+        logits_lat, _ = self.space_lat.compute_sim(vid_out, text_out)
+        logits_con, _ = self.space_con.compute_sim(vid_out, text_out)
 
-    def encode_video_con(self, video_ids: List[str], to_prob=False) -> torch.Tensor:
-        out = self.video_encoder(video_ids)
-        out = self.video_projection_con(out)
+        logits_lat = utils.min_max_normalize(logits_lat)
+        logits_con = utils.min_max_normalize(logits_con)
 
-        if to_prob:
-            out = F.sigmoid(out)
+        logits = self.alpha * logits_lat + (1 - self.alpha) * logits_con
 
-        return out
+        return logits, logits.T # (B_v, B_t), (B_t, B_v)
 
-    def encode_text_con(self, sents: List[List[str]], to_prob=False) -> torch.Tensor:
-        out = self.text_encoder(sents)
-        out = self.text_projection_con(out)
+    def forward_loss(self, video, vid_true_lens, text, text_true_lens, tag_label):
+        vid_out = self.video_encoder(video, vid_true_lens)
+        text_out = self.text_encoder(text, text_true_lens)
 
-        if to_prob:
-            out = F.sigmoid(out)
+        loss1 = self.space_lat.compute_loss(vid_out, text_out)
+        loss2 = self.space_con.compute_loss(vid_out, text_out, tag_label)
 
-        return out
+        loss = loss1 + loss2
 
-    def encode_lat(self, video_ids: List[str], sents: List[List[str]], l2_normalize=True):
-        vid_emb = self.encode_video_lat(video_ids, l2_normalize=l2_normalize)
-        text_emb = self.encode_text_lat(sents, l2_normalize=l2_normalize)
+        return loss
 
-        return vid_emb, text_emb
+    def save(self, path: str):
+        args_dict = {
+            'embed_dim_lat': self.embed_dim_lat,
+            'tag_vocab_size': self.tag_vocab_size,
+            'alpha': self.alpha,
+            # video
+            'frame_feature_dim': self.video_encoder.frame_feature_dim,
+            'vid_rnn_hidden_size': self.video_encoder.rnn_hidden_size ,
+            'vid_cnn_out_channels_list': self.video_encoder.cnn_out_channels_list ,
+            'vid_cnn_filter_size_list': self.video_encoder.cnn_filter_size_list ,
+            'vid_dp_rate_lat': self.space_lat.video_dp_rate,
+            'vid_dp_rate_con': self.space_con.video_dp_rate,
+            # text
+            'vocab_size': self.text_encoder.vocab_size,
+            'text_rnn_hidden_size': self.text_encoder.rnn_hidden_size,
+            'text_cnn_out_channels_list': self.text_encoder.cnn_out_channels_list,
+            'text_cnn_filter_size_list': self.text_encoder.cnn_filter_size_list,
+            'text_dp_rate_lat': self.space_lat.text_dp_rate,
+            'text_dp_rate_con': self.space_con.text_dp_rate,
+            'pretrained_weight': self.text_encoder.pretrained_weight,
+        }
 
-    def encode_con(self, video_ids: List[str], sents: List[List[str]], to_prob=False):
-        vid_emb = self.encode_video_con(video_ids, to_prob=to_prob)
-        text_emb = self.encode_text_con(sents, to_prob=to_prob)
+        model_dict = { 'args': args_dict, 'state_dict': self.state_dict() }
+        torch.save(model_dict, path)
 
-        return vid_emb, text_emb
+    @staticmethod
+    def load(model_path: str):
+        model_dict = torch.load(model_path, map_location=lambda storage, loc: storage)
+        model = HybridDualEncoding(**model_dict['args'])
+        model.load_state_dict(model_dict['state_dict'])
 
-    def forward(self, video_ids: List[str], sents: List[List[str]]):    # calc sim using both sim_lat + sim_con
-        vid_emb_lat, text_emb_lat = self.encode_lat(video_ids, sents)   # (B_v, E_lat), (B_t, E_lat)
-        vid_emb_con, text_emb_con = self.encode_con(video_ids, sents)   # (B_v, V_tag), (B_t, V_tag), where V_tag == tag_vocab_size
+        return model
 
-        sim_lat = self.latent_space(vid_emb_lat, text_emb_lat)
-        sim_con = self.concept_space(vid_emb_con, text_emb_con)
-
-        sim_lat = utils.min_max_normalize(sim_lat)
-        sim_con = utils.min_max_normalize(sim_con)
-
-        return self.alpha * sim_lat + (1 - self.alpha) * sim_con
-
-    def forward_loss(self, video_ids: List[str], captions: List[List[str]], tags: torch.Tensor):
-        vid_emb_lat, cap_emb_lat = self.encode_lat(video_ids, captions)   # (B, E), (B, E)
-        vid_emb_con, cap_emb_con = self.encode_con(video_ids, captions) # (B, V_tag), (B, V_tag)
-
-        loss_lat =  self.latent_space.forward_loss(vid_emb_lat, cap_emb_lat)
-        loss_con = self.concept_space.forward_loss(vid_emb_con, cap_emb_con, tags)
-
-        return loss_lat + loss_con
+    @property
+    def device(self) -> torch.device:
+        return self.video_encoder.device

@@ -9,5 +9,6 @@ dependencies:
   - torchvision=0.13
   - numpy=1.23
   - tqdm=4.65
+  - pyyaml=6.0
   - pip:
     - nltk==3.8

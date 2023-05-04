@@ -1,8 +1,10 @@
-import torch
 from itertools import chain
 import json
 import argparse
 from typing import Dict, List, Tuple
+
+import torch
+import torch.nn.functional as F
 
 import utils
 
@@ -84,11 +86,6 @@ class PureVocab:
 
         return PureVocab(word_to_idx)
 
-
-class TagVocab(PureVocab):
-    def __init__(self, word_to_idx: Dict[str, int] = None):
-        super(TagVocab, self).__init__(word_to_idx)
-
 class Vocab(PureVocab):
     PAD_TOKEN = '<pad>'  # read only
     START_TOKEN = '<s>'  # read only
@@ -153,12 +150,12 @@ class Vocab(PureVocab):
 
         return sents_padded, lengths
 
-    def to_input_tensor_batch(self, sents, device, desc=True):
+    def to_input_tensor_batch(self, sents, device=None, desc=True):
         """Convert sentences to a batched tensor.
 
         Args:
             sents (List[List[str]]): List of sentences. Each sentence is list of words.
-            device (torch.device): A torch device.
+            device (torch.device, optional): A torch device. Defaults to None.
             desc (bool, optional): If True, sort (in descending) sentences in a batch. Defaults to True. Also applies to
                                    'true_lens'.
 
@@ -175,7 +172,7 @@ class Vocab(PureVocab):
         return sents_tensor, true_lens
 
     @staticmethod
-    def build(words, freq_cutoff=0, size=-1, *, with_print=False):
+    def build(words, freq_cutoff=0, size=-1):
         """overrides PureVocab 'build' static method
         """
         vocab = Vocab()
@@ -208,7 +205,7 @@ if __name__ == '__main__':
     preprocess_fn = lambda cap: utils.clean_text(cap).split()
 
     _, preprocessed_caps = utils.read_captions(args.cap_file, process_fn=preprocess_fn)  # preprocessed_caps: List[List[str]]
-    vocab = Vocab.build(chain(*preprocessed_caps), args.freq_cutoff, args.size, with_print=True)
+    vocab = Vocab.build(chain(*preprocessed_caps), args.freq_cutoff, args.size)
     print(f'generated vocabulary, total {len(vocab)} words')
 
     vocab.save(args.vocab_file)

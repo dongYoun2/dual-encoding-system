@@ -1,0 +1,42 @@
+# --dataset path--
+video_feature_dir: 'data/msrvtt10k/FeatureData/resnext101-resnet152'
+train_cap_file: 'data/msrvtt10k/TextData/msrvtt10ktrain.caption.txt'
+val_cap_file: 'data/msrvtt10k/TextData/msrvtt10kval.caption.txt'
+test_cap_file: 'data/msrvtt10k/TextData/msrvtt10ktest.caption.txt'
+vocab_file: 'vocab.json'
+tag_annotation_file: 'video_tag.txt'
+tag_vocab_file: 'tag_vocab.json'
+
+# --video encoder--
+# frame_feature_dim: 4096. Second dim of shape in video_feature_dir's shape.txt. Dynamically inferred.
+vid_rnn_hidden_size: 512
+vid_cnn_out_channels: [512, 512, 512, 512]
+vid_cnn_filter_size: [2, 3, 4, 5]
+vid_dp_rate_lat: 0.2
+vid_dp_rate_con: 0.2
+
+# --text_encoder--
+# vocab_size: len(vocab). Dynamically inferred.
+text_rnn_hidden_size: 512
+text_cnn_out_channels: [512, 512, 512]
+text_cnn_filter_size: [2, 3, 4]
+text_dp_rate_lat: 0.2
+text_dp_rate_con: 0.2
+pretrained_weight_file: 'pretrained_weight.npy'  # word2vec embedding numpy file
+
+# --common space config--
+embed_dim_lat: 1536 # 2048 - 512
+# embed_dim_con  # 512 == tag_vocab_size, dynamically inferred
+alpha: 0.2
+
+# --train config--
+batch_size: 128
+max_epoch: 30
+lr: 0.0001
+shuffle_data: true
+grad_clip: 2
+val_n_epoch: 3
+lr_decay_rate: 0.99
+lr_decay_patience_cnt: 3 # lr <- lr * 'lr_decay_patience_rate', when val perf. doesn't increase until 'lr_decay_patience_cnt' consecutive epoch
+lr_decay_patience_rate: 0.5
+early_stop_patience_cnt: 10 # early stopping when val perf. doesn't increase until 'early_stop_patience_cnt' consecutive epoch
