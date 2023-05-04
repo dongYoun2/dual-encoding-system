@@ -129,7 +129,7 @@ def train(config, args, model, train_loader, optimizer, epoch, logger):
         logger.write(['iter level\t', 'epoch: ', epoch, 'iter: ', i, 'loss: ', losses.val,
                             'batch time: ', batch_time.val])
 
-    logger.write(['epoch level\t', 'epoch: ', epoch, 'loss: ', losses.avg, 'epoch time', batch_time.sum])
+    logger.write(['epoch level\t', 'epoch: ', epoch, 'loss: ', losses.val, 'epoch time', batch_time.sum])
 
 
 def validate(config, args, model, video_bundle, val_cap_bundle, optimizer, epoch, logger, best_t2v_r_sum, patience):

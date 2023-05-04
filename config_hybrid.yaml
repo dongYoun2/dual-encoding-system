@@ -35,11 +35,11 @@ max_epoch: 30
 lr: 0.0001
 shuffle_data: true
 grad_clip: 2
-val_n_epoch: 3
+val_n_epoch: 1
 lr_decay_rate: 0.99
-lr_decay_patience_cnt: 3 # lr <- lr * 'lr_decay_patience_rate', when val perf. doesn't increase until 'lr_decay_patience_cnt' consecutive epoch
+lr_decay_patience_cnt: 3 # lr <- lr * 'lr_decay_patience_rate', when val perf. doesn't increase until 'lr_decay_patience_cnt' consecutive validations
 lr_decay_patience_rate: 0.5
-early_stop_patience_cnt: 10 # early stopping when val perf. doesn't increase until 'early_stop_patience_cnt' consecutive epoch
+early_stop_patience_cnt: 10 # early stopping when val perf. doesn't increase until 'early_stop_patience_cnt' consecutive validations
 
 # --evaluation config (val. & test)--
 eval_batch_size: 2000
