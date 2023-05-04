@@ -5,3 +5,13 @@ vocab.json
 pretraine_weight.npy
 tag_vocab.json
 video_tag.txt
+
+vocab_tiny.json
+tag_vocab_tiny.json
+video_tag_tiny.txt
+
+model_hybrid_debug.bin
+model_hybrid_debug.bin.ckpt
+
+logs*_hybrid/
+models*_hybrid/
