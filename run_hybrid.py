@@ -135,7 +135,7 @@ def train(config, args, model, train_loader, optimizer, epoch, logger):
 def validate(config, args, model, video_bundle, val_cap_bundle, optimizer, epoch, logger, best_t2v_r_sum, patience):
     print('-'*100)
     print(f"validation starting")
-    val_v2t_metrics, val_t2v_metrics = evaluation.evaluate(model, video_bundle, val_cap_bundle)
+    val_v2t_metrics, val_t2v_metrics = evaluation.evaluate(model, video_bundle, val_cap_bundle, batch_size=config['eval_batch_size'])
     (val_v2t_r1, val_v2t_r5, val_v2t_r10, val_v2t_med_r, val_v2t_mean_r), val_v2t_r_sum = val_v2t_metrics
     (val_t2v_r1, val_t2v_r5, val_t2v_r10, val_t2v_med_r, val_t2v_mean_r), val_t2v_r_sum = val_t2v_metrics
 
@@ -201,7 +201,7 @@ def validate(config, args, model, video_bundle, val_cap_bundle, optimizer, epoch
 def test(config, args, model, video_bundle, test_cap_bundle, logger):
     print('-'*100)
     print('test staring')
-    v2t_metrics, t2v_metrics = evaluation.evaluate(model, video_bundle, test_cap_bundle)
+    v2t_metrics, t2v_metrics = evaluation.evaluate(model, video_bundle, test_cap_bundle, batch_size=config['eval_batch_size'])
     (v2t_r1, v2t_r5, v2t_r10, v2t_med_r, v2t_mean_r), v2t_r_sum = v2t_metrics
     (t2v_r1, t2v_r5, t2v_r10, t2v_med_r, t2v_mean_r), t2v_r_sum = t2v_metrics
 
@@ -284,6 +284,8 @@ if __name__ == '__main__':
             config['shuffle_data'] = False
             config['val_n_epoch'] = 2
             config['early_stop_patience_cnt'] = 6
+
+            config['eval_batch_size'] = 10
 
             args.log_dir = args.log_dir.replace('logs', 'logs_debug')
             args.print_freq = 1
