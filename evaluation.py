@@ -1,5 +1,6 @@
 from typing import List, Tuple, Dict, Union
 from collections import defaultdict
+import math
 
 import torch
 import numpy as np
@@ -50,7 +51,8 @@ def _eval_q2m(scores: np.ndarray, gt: List[List[int]]) -> Tuple[Tuple[float, flo
     return (r1, r5, r10, med_r, mean_r), r_sum
 
 
-def evaluate(model: Union[HybridDualEncoding, LatentDualEncoding], video_bundle: VideoBundle, cap_bundle: CaptionBundle):
+# batch_size == -1 for global batch size
+def evaluate(model: Union[HybridDualEncoding, LatentDualEncoding], video_bundle: VideoBundle, cap_bundle: CaptionBundle, batch_size=-1):
     was_training = model.training
 
     model.eval()
@@ -58,24 +60,45 @@ def evaluate(model: Union[HybridDualEncoding, LatentDualEncoding], video_bundle:
     vid_ids = cap_bundle.all_related_video_ids()
     cap_ids = cap_bundle.all_ids()
 
-    # global batch
-    vids, vid_lens = video_bundle.to_input_tensor_batch(vid_ids, device=model.device)
-    caps, cap_lens = cap_bundle.to_input_tensor_batch(cap_ids, device=model.device)
+    len_vid, len_cap = len(vid_ids), len(cap_ids)
 
-    v2t_gt_indices, t2v_gt_indices = _get_gt(vid_ids, cap_ids)
+    if batch_size == -1:
+        bz_vid, bz_cap = len_vid, len_cap
+    else:
+        bz_vid = bz_cap = batch_size
 
-    with torch.no_grad():
-        logits, logits_T = model.forward(vids, vid_lens, caps, cap_lens)
+    iter_vid = math.ceil(len_vid / bz_vid)
+    iter_cap = math.ceil(len_cap / bz_cap)
 
-        logits = logits.detach().cpu().numpy()
-        logits_T = logits_T.detach().cpu().numpy()
+    global_logits_list = []
+    for i in range(iter_vid):
+        logits_list = []
+        for j in range(iter_cap):
+            vid_ids_batch = vid_ids[i*bz_vid:(i+1)*bz_vid]
+            cap_ids_batch = cap_ids[j*bz_cap:(j+1)*bz_cap]
 
-    v2t_metrics = _eval_q2m(logits, v2t_gt_indices)
-    t2v_metrics = _eval_q2m(logits_T, t2v_gt_indices)
+            vid_batch, vid_batch_lens = video_bundle.to_input_tensor_batch(vid_ids_batch, device=model.device)
+            cap_batch, cap_batch_lens = cap_bundle.to_input_tensor_batch(cap_ids_batch, device=model.device)
+
+            v2t_gt_indices, t2v_gt_indices = _get_gt(vid_ids_batch, cap_ids_batch)
+
+            with torch.no_grad():
+                logits_b, _ = model.forward(vid_batch, vid_batch_lens, cap_batch, cap_batch_lens)
+                logits_b = logits_b.detach().cpu().numpy()
+
+                logits_list.append(logits_b)
+
+        logits_row = np.concatenate(logits_list, axis=1)
+        global_logits_list.append(logits_row)
+
+    global_logits = np.concatenate(global_logits_list)  # (N, 20*N)
+
+    assert global_logits.shape == (len_vid, len_cap)
+
+    v2t_metrics = _eval_q2m(global_logits, v2t_gt_indices)
+    t2v_metrics = _eval_q2m(global_logits.T, t2v_gt_indices)
 
     if was_training:
         model.train()
 
     return v2t_metrics, t2v_metrics
-
-
