@@ -1,3 +1,4 @@
+import sys
 from typing import Tuple, List, Iterable
 import re
 from collections import Counter
@@ -84,8 +85,10 @@ def to_lemmas(text: str) -> List[str]:
         try:
             wn_pos = _get_wordnet_pos(pos)
             word = wn_lemmatizer.lemmatize(token, pos=wn_pos)
-        except Exception as e:
-            # print(e)
+        except LookupError as e:
+            print(e, file=sys.stderr)
+            sys.exit(1)
+        except ValueError:
             continue
 
         if word in eng_stopwords:
