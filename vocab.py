@@ -122,7 +122,7 @@ class Vocab(PureVocab):
         return [self.idx2word[idx] for idx in w_indices]
 
     @staticmethod
-    def pad_sent_batch(sents, desc=True):
+    def pad_sent_batch(sents, desc=False):
         """Pad sentence batch.
 
         Args:
@@ -150,13 +150,13 @@ class Vocab(PureVocab):
 
         return sents_padded, lengths
 
-    def to_input_tensor_batch(self, sents, device=None, desc=True):
+    def to_input_tensor_batch(self, sents, device=None, desc=False):
         """Convert sentences to a batched tensor.
 
         Args:
             sents (List[List[str]]): List of sentences. Each sentence is list of words.
             device (torch.device, optional): A torch device. Defaults to None.
-            desc (bool, optional): If True, sort (in descending) sentences in a batch. Defaults to True. Also applies to
+            desc (bool, optional): If True, sort (in descending) sentences in a batch. Defaults to False. Also applies to
                                    'true_lens'.
 
         Returns:
