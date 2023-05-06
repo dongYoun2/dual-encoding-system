@@ -3,10 +3,14 @@ import time
 import os
 import sys
 
+import random
+
 import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader
 import torch.optim as optim
+import torch.backends.mps
+import torch.mps
 import numpy as np
 import yaml
 
@@ -257,6 +261,8 @@ if __name__ == '__main__':
         parser.add_argument('conf_file', type=str, help='train config file')
         parser.add_argument('--debug', action='store_true', default=False, help='debug mode')
         parser.add_argument('--device', choices=['cuda', 'mps', 'cpu'], type=str, default='cpu')
+        parser.add_argument('--seed', type=int, default=0, help='RNG seed')
+
 
         #model save and logging args
         time_fmt = time.strftime('%m-%d-%X', time.localtime(time.time()))
@@ -307,8 +313,19 @@ if __name__ == '__main__':
         return config, args
 
 
+    def set_seed(seed):
+        torch.manual_seed(seed)
+
+        if torch.backends.mps.is_available():
+            torch.mps.manual_seed(seed)
+
+        random.seed(0)
+        np.random.seed(0)
+
+
     config, args = parse()
     config, args = convert(config, args)
+    set_seed(args.seed)
 
     if args.type == 'train':
         train_process(config, args)
