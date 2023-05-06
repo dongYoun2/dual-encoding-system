@@ -38,11 +38,11 @@ def _eval_q2m(scores: np.ndarray, gt: List[List[int]]) -> Tuple[Tuple[float, flo
         rank = min(np.argwhere(pred_indices == gt_idx)[0][0] for gt_idx in gt_indices) + 1
         ranks.append(rank)
 
-    ranks = np.stack(ranks)
+    ranks = np.array(ranks)
 
-    r1 = (np.sum(ranks <= 1) / scores.shape[1] * 100)
-    r5 = (np.sum(ranks <= 5) / scores.shape[1] * 100)
-    r10 = (np.sum(ranks <= 10) / scores.shape[1] * 100)
+    r1 = (np.sum(ranks <= 1) / scores.shape[0] * 100)
+    r5 = (np.sum(ranks <= 5) / scores.shape[0] * 100)
+    r10 = (np.sum(ranks <= 10) / scores.shape[0] * 100)
     med_r = np.median(ranks)
     mean_r = np.mean(ranks)
 

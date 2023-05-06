@@ -60,13 +60,13 @@ class VideoBundle:
 
         return video
 
-    def to_input_tensor_batch(self, videos: Union[List[str], List[torch.Tensor]], device: torch.device=None, desc=True):
+    def to_input_tensor_batch(self, videos: Union[List[str], List[torch.Tensor]], device: torch.device=None, desc=False):
         """Convert video_ids to a batched tensor.
 
         Args:
             video_ids (List[str] | List[Tensor]): List of video ids or list of video tensors.
             device (torch.device): A torch device.
-            desc (bool, optional): If True, sort (in descending) videos by each length in a batch. Defaults to True. Also applies
+            desc (bool, optional): If True, sort (in descending) videos by each length in a batch. Defaults to False. Also applies
                                    to 'true_lens'.
 
         Returns:
@@ -107,7 +107,7 @@ class CaptionBundle:
         return torch.tensor(word_indices, dtype=torch.long, device=device)
 
     # list of caption ids or list of caption tensor
-    def to_input_tensor_batch(self, captions: Union[List[str], List[torch.Tensor]], device: torch.device=None, desc=True):
+    def to_input_tensor_batch(self, captions: Union[List[str], List[torch.Tensor]], device: torch.device=None, desc=False):
         if isinstance(captions[0], str):
             captions = [self.to_input_tensor(cap_id, device=device) for cap_id in captions]
 
@@ -178,8 +178,8 @@ def vid_cap_collate(data_list):
     vid_ids, vid_tensors = zip(*vid_data)
     cap_ids, cap_tensors = zip(*cap_data)
 
-    vid_batch, vid_true_lens = utils.to_padded_tensor_batch(list(vid_tensors))
-    cap_batch, cap_true_lens = utils.to_padded_tensor_batch(list(cap_tensors))
+    vid_batch, vid_true_lens = utils.to_padded_tensor_batch(list(vid_tensors), desc=False)
+    cap_batch, cap_true_lens = utils.to_padded_tensor_batch(list(cap_tensors), desc=False)
 
     return (vid_ids, vid_batch, vid_true_lens), (cap_ids, cap_batch, cap_true_lens)
 
