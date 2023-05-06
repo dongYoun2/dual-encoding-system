@@ -118,7 +118,7 @@ def vid_id_from_cap_id(caption_id: str) -> str:
     return caption_id.split('#', 1)[0]
 
 
-def to_padded_tensor_batch(tensor_list: List[torch.Tensor], pad_value=0, desc=True):
+def to_padded_tensor_batch(tensor_list: List[torch.Tensor], pad_value=0, desc=False):
     if desc:
         tensor_list.sort(key=lambda tensor: tensor.shape[0], reverse=True)
 
