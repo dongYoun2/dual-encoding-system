@@ -70,7 +70,7 @@ def train_process(config, args):
     model.to(args.device)
     optimizer = optim.Adam(model.parameters(), config['lr'])
 
-    best_t2v_r_sum = 0.0
+    best_t2v_sum_r = 0.0
     patience = 0
 
     print('-'*100)
@@ -79,8 +79,8 @@ def train_process(config, args):
         train(config, args, model, train_loader, optimizer, epoch, train_logger)
 
         if epoch % config['val_n_epoch'] == 0:
-            best_t2v_r_sum, patience = validate(config, args, model, video_bundle, val_cap_bundle, optimizer, epoch,
-                                                val_logger, best_t2v_r_sum, patience)
+            best_t2v_sum_r, patience = validate(config, args, model, video_bundle, val_cap_bundle, optimizer, epoch,
+                                            val_logger, best_t2v_sum_r, patience, test_cap_bundle, test_logger)
 
     print('-'*100)
     print(f'train finished, reached to maximum epoch {config["max_epoch"]}')
@@ -132,17 +132,19 @@ def train(config, args, model, train_loader, optimizer, epoch, logger):
     logger.write(['epoch level\t', 'epoch: ', epoch, 'loss: ', losses.val, 'epoch time', batch_time.sum])
 
 
-def validate(config, args, model, video_bundle, val_cap_bundle, optimizer, epoch, logger, best_t2v_r_sum, patience):
+def validate(config, args, model, video_bundle, val_cap_bundle, optimizer, epoch, logger, best_t2v_sum_r, patience,
+             test_cap_bundle, test_logger):
     print('-'*100)
     print(f"validation starting")
-    val_v2t_metrics, val_t2v_metrics = evaluation.evaluate(model, video_bundle, val_cap_bundle, batch_size=config['eval_batch_size'])
-    (val_v2t_r1, val_v2t_r5, val_v2t_r10, val_v2t_med_r, val_v2t_mean_r), val_v2t_r_sum = val_v2t_metrics
-    (val_t2v_r1, val_t2v_r5, val_t2v_r10, val_t2v_med_r, val_t2v_mean_r), val_t2v_r_sum = val_t2v_metrics
+    val_v2t_metrics, val_t2v_metrics = evaluation.evaluate(model, video_bundle, val_cap_bundle,
+                                                           batch_size=config['eval_batch_size'])
+    (val_v2t_r1, val_v2t_r5, val_v2t_r10, val_v2t_sum_r), val_v2t_med_r, val_v2t_mean_r = val_v2t_metrics
+    (val_t2v_r1, val_t2v_r5, val_t2v_r10, val_t2v_sum_r), val_t2v_med_r, val_t2v_mean_r = val_t2v_metrics
 
     v2t_l = ['v2t R@1: ', val_v2t_r1, 'v2t R@5: ', val_v2t_r5, 'v2t R@10: ', val_v2t_r10,
-                        'v2t med R: ', val_v2t_med_r, 'v2t mean R: ', val_v2t_mean_r, 'v2t R sum: ', val_v2t_r_sum]
+                        'v2t sum R: ', val_v2t_sum_r, 'v2t med R: ', val_v2t_med_r, 'v2t mean R: ', val_v2t_mean_r]
     t2v_l = ['t2v R@1: ', val_t2v_r1, 't2v R@5: ', val_t2v_r5, 't2v R@10: ', val_t2v_r10,
-                        't2v med R: ', val_t2v_med_r, 't2v mean R: ', val_t2v_mean_r, 't2v R sum: ', val_t2v_r_sum]
+                        't2v sum R: ', val_t2v_sum_r, 't2v med R: ', val_t2v_med_r, 't2v mean R: ', val_t2v_mean_r]
 
     logger.write(['epoch: ', epoch] + v2t_l + t2v_l)
 
@@ -152,8 +154,8 @@ def validate(config, args, model, video_bundle, val_cap_bundle, optimizer, epoch
     print('text to video: ')
     print(' '.join(str(e) for e in t2v_l))
 
-    if val_t2v_r_sum >= best_t2v_r_sum: # val perf. increased
-        best_t2v_r_sum = val_t2v_r_sum
+    if val_t2v_sum_r >= best_t2v_sum_r: # val perf. increased
+        best_t2v_sum_r = val_t2v_sum_r
 
         # save current best model
         os.makedirs(os.path.dirname(args.model_path), exist_ok=True)
@@ -162,10 +164,10 @@ def validate(config, args, model, video_bundle, val_cap_bundle, optimizer, epoch
         logger.write([line])
         print(line)
 
-        # also save the epoch, val best t2v r_sum, patience, optimizers' state
+        # also save the epoch, val best t2v sum_r, patience, optimizers' state
         checkpoint_dict = {
             'epoch': epoch,
-            'best_t2v_r_sum': best_t2v_r_sum,
+            'best_t2v_sum_r': best_t2v_sum_r,
             'patience': patience,
             'optim_state_dict': optimizer.state_dict(),
         }
@@ -183,32 +185,41 @@ def validate(config, args, model, video_bundle, val_cap_bundle, optimizer, epoch
         logger.write(['hit patience ', patience, 'at epoch ', epoch])
 
         if patience == config['early_stop_patience_cnt']: # early stops
-            logger.write(['val perf. not increased during ', config['early_stop_patience_cnt'],
-                                'consecutive epochs, ', 'early stopping at epoch ', epoch])
+            line = (f"val perf. not increased until {config['early_stop_patience_cnt']} consecutive epochs, "
+                    f"early stopping at epoch {epoch}")
+            logger.write([line])
+            print(line)
+
+            # eval on test set after early stops
+            model = HybridDualEncoding.load(args.model_path)
+            test(config, args, model, video_bundle, test_cap_bundle, test_logger)
+
             sys.exit(0)
 
         if patience % config['lr_decay_patience_cnt'] == 0:
             optimizer.param_groups[0]['lr'] *= config['lr_decay_patience_rate']
 
-            logger.write(['val perf. not increased during ', config['lr_decay_patience_cnt'],
-                                'consecutive epochs, ', 'lr decaying by rate ', config['lr_decay_patience_rate']])
+            line = (f"'val perf. not increased until {config['lr_decay_patience_cnt']} consecutive epochs, "
+                    f"lr decaying by rate {config['lr_decay_patience_rate']}")
+            logger.write([line])
+            print(line)
 
     print(f"validation finished")
 
-    return best_t2v_r_sum, patience
+    return best_t2v_sum_r, patience
 
 
 def test(config, args, model, video_bundle, test_cap_bundle, logger):
     print('-'*100)
     print('test staring')
     v2t_metrics, t2v_metrics = evaluation.evaluate(model, video_bundle, test_cap_bundle, batch_size=config['eval_batch_size'])
-    (v2t_r1, v2t_r5, v2t_r10, v2t_med_r, v2t_mean_r), v2t_r_sum = v2t_metrics
-    (t2v_r1, t2v_r5, t2v_r10, t2v_med_r, t2v_mean_r), t2v_r_sum = t2v_metrics
+    (v2t_r1, v2t_r5, v2t_r10, v2t_sum_r), v2t_med_r, v2t_mean_r = v2t_metrics
+    (t2v_r1, t2v_r5, t2v_r10, t2v_sum_r), t2v_med_r, t2v_mean_r = t2v_metrics
 
     v2t_l = ['v2t R@1: ', v2t_r1, 'v2t R@5: ', v2t_r5, 'v2t R@10: ', v2t_r10,
-                  'v2t med R: ', v2t_med_r, 'v2t mean R: ', v2t_mean_r, 'v2t R sum: ', v2t_r_sum]
+                  'v2t sum R: ', v2t_sum_r, 'v2t med R: ', v2t_med_r, 'v2t mean R: ', v2t_mean_r]
     t2v_l = ['t2v R@1: ', t2v_r1, 't2v R@5: ', t2v_r5, 't2v R@10: ', t2v_r10,
-                  't2v med R: ', t2v_med_r, 't2v mean R: ', t2v_mean_r, 't2v R sum: ', t2v_r_sum]
+                  't2v sum R: ', t2v_sum_r, 't2v med R: ', t2v_med_r, 't2v mean R: ', t2v_mean_r]
 
     logger.write(v2t_l + t2v_l)
 
@@ -279,13 +290,13 @@ if __name__ == '__main__':
             config['tag_annotation_file'] = 'video_tag_tiny.txt'
             config['tag_vocab_file'] = 'tag_vocab_tiny.json'
 
-            config['batch_size'] = 8
-            config['max_epoch'] = 7
-            config['shuffle_data'] = False
-            config['val_n_epoch'] = 2
-            config['early_stop_patience_cnt'] = 6
+            config['batch_size'] = 2
+            config['max_epoch'] = 15
+            config['shuffle_data'] = True
+            config['val_n_epoch'] = 1
+            config['early_stop_patience_cnt'] = 4
 
-            config['eval_batch_size'] = 10
+            config['eval_batch_size'] = 16
 
             args.log_dir = args.log_dir.replace('logs', 'logs_debug')
             args.print_freq = 1

@@ -33,7 +33,7 @@ class RNNEmbedding(nn.Module):
             hiddens (torch.Tensor): Shape (B, L, 2*H_out), where H_out == hidde_size.
             embedding (torch.Tensor): Shape (B, 2*H_out).
         """
-        hiddens_packed, _ = self.rnn(pack_padded_sequence(x, lengths, batch_first=True, enforce_sorted=True))
+        hiddens_packed, _ = self.rnn(pack_padded_sequence(x, lengths, batch_first=True, enforce_sorted=False))
         hiddens, _ = pad_packed_sequence(hiddens_packed, batch_first=True)
         # global average pooling
         emb = torch.sum(hiddens, dim=1) / x.shape[1]
@@ -120,7 +120,7 @@ class VideoEncoder(nn.Module):
         # Level 1
         # 'feature_emb' is denoted as f_v^1 in the paper
         # global average pooling
-        feature_emb = torch.sum(x, dim=1) / x.shape[1]  # (B, F)
+        feature_emb = torch.sum(x, dim=1) / torch.tensor(true_lens, device=self.device).unsqueeze(1)  # (B, F)
 
         # Level 2
         # 'rnn_emb' is denoted as f_v^2 in the paper
@@ -189,6 +189,7 @@ class TextEncoder(nn.Module):
         # Level 1
         # 'bow' is denoted as f_s^1 in the paper
         bow = torch.sum(one_hot, dim=1) # (B, V)
+        bow[:,Vocab.PAD_IDX] = 0.0
 
         # Level 2
         x = self.embedding(x)   # (B, L, word_embedding_dim)
@@ -459,12 +460,18 @@ class HybridDualEncoding(nn.Module):
 
         return out_lat, out_con  # (B_t, embed_dim_lat), (B_t, tag_vocab_size)
 
-    def forward(self, video, vid_true_lens, text, text_true_lens):
+    def forward_sep(self, video, vid_true_lens, text, text_true_lens):
         vid_out = self.video_encoder(video, vid_true_lens)
         text_out = self.text_encoder(text, text_true_lens)
 
-        logits_lat, _ = self.space_lat.compute_sim(vid_out, text_out)
-        logits_con, _ = self.space_con.compute_sim(vid_out, text_out)
+        logits_lat, logits_lat_T = self.space_lat.compute_sim(vid_out, text_out)
+        logits_con, logits_con_T = self.space_con.compute_sim(vid_out, text_out)
+
+
+        return (logits_lat, logits_lat_T), (logits_con, logits_con_T)
+
+    def forward(self, video, vid_true_lens, text, text_true_lens):
+        (logits_lat, _), (logits_con, _) = self.forward_sep(video, vid_true_lens, text, text_true_lens)
 
         logits_lat = utils.min_max_normalize(logits_lat)
         logits_con = utils.min_max_normalize(logits_con)

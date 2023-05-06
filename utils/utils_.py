@@ -122,7 +122,7 @@ def to_padded_tensor_batch(tensor_list: List[torch.Tensor], pad_value=0, desc=Tr
     if desc:
         tensor_list.sort(key=lambda tensor: tensor.shape[0], reverse=True)
 
-    true_lens = [cap.shape[0] for cap in tensor_list]
+    true_lens = [tensor.shape[0] for tensor in tensor_list]
     tensor_batch = pad_sequence(tensor_list, batch_first=True, padding_value=pad_value)
 
     assert tensor_batch.shape[0] == len(true_lens)
