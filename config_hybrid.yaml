@@ -42,4 +42,5 @@ lr_decay_patience_rate: 0.5
 early_stop_patience_cnt: 10 # early stopping when val perf. doesn't increase until 'early_stop_patience_cnt' consecutive validations
 
 # --evaluation config (val. & test)--
-eval_batch_size: 2000
+eval_val_batch_size: 2000
+eval_test_batch_size: 1000
