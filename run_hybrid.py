@@ -90,7 +90,7 @@ def train_process(config, args):
     print(f'train finished, reached to maximum epoch {config["max_epoch"]}')
 
     # final evaluation on test set
-    model = HybridDualEncoding.load(args.model_path)
+    model = HybridDualEncoding.load(args.model_path, args.device)
     test(config, args, model, video_bundle, test_cap_bundle, test_logger)
 
 
@@ -195,7 +195,7 @@ def validate(config, args, model, video_bundle, val_cap_bundle, optimizer, epoch
             print(line)
 
             # eval on test set after early stops
-            model = HybridDualEncoding.load(args.model_path)
+            model = HybridDualEncoding.load(args.model_path, args.device)
             test(config, args, model, video_bundle, test_cap_bundle, test_logger)
 
             sys.exit(0)
@@ -239,8 +239,7 @@ def test(config, args, model, video_bundle, test_cap_bundle, logger):
 def test_process(config, args):
     os.makedirs(args.log_dir, exist_ok=True)
 
-    model = HybridDualEncoding.load(args.model_path)
-    model.to(args.device)
+    model = HybridDualEncoding.load(args.model_path, args.device)
 
     vocab = Vocab.load(config['vocab_file'])
     video_bundle = VideoBundle(config['video_feature_dir'])

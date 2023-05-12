@@ -128,9 +128,9 @@ class VideoEncoder(nn.Module):
 
         # Level 3
         x = x.transpose(1, 2)   # (B, H_out, L)
+        # 'cnn_emb' is denoted as f_v^3 in the paper
         cnn_emb = self.cnn_embedding(x)  # (B, C_out)
 
-        # 'video_emb' is denoted as f_v^3 in the paper
         video_emb = torch.concat((feature_emb, rnn_emb, cnn_emb), dim=1)   # (B, F + H_out + C_out)
 
         return video_emb
@@ -198,9 +198,9 @@ class TextEncoder(nn.Module):
 
         # Level 3
         x = x.transpose(1, 2)   # (B, H_out, L)
+        # 'cnn_emb' is denoted as f_s^3 in the paper
         cnn_emb = self.cnn_embedding(x)  # (B, C_out)
 
-        # 'text_emb' is denoted as f_s^3 in the paper
         text_emb = torch.concat((bow, rnn_emb, cnn_emb), dim=1)    # (B, V + H_out + C_out)
 
         return text_emb
@@ -517,10 +517,11 @@ class HybridDualEncoding(nn.Module):
         torch.save(model_dict, path)
 
     @staticmethod
-    def load(model_path: str):
+    def load(model_path: str, device):
         model_dict = torch.load(model_path, map_location=lambda storage, loc: storage)
         model = HybridDualEncoding(**model_dict['args'])
         model.load_state_dict(model_dict['state_dict'])
+        model.to(device)
 
         return model
 
