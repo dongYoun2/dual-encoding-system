@@ -203,6 +203,10 @@ def validate(config, args, model, video_bundle, val_cap_bundle, optimizer, epoch
         if patience % config['lr_decay_patience_cnt'] == 0:
             optimizer.param_groups[0]['lr'] *= config['lr_decay_patience_rate']
 
+            # load previous saved best model
+            model_dict = torch.load(args.model_path)
+            model.load_state_dict(model_dict['state_dict'])
+
             line = (f"'val perf. not increased until {config['lr_decay_patience_cnt']} consecutive epochs, "
                     f"lr decaying by rate {config['lr_decay_patience_rate']}")
             logger.write([line])
