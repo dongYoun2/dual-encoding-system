@@ -11,7 +11,7 @@ from vocab import Vocab
 
 
 class RNNEmbedding(nn.Module):
-    def __init__(self, input_size: int, hidden_size: int):
+    def __init__(self, input_size: int, hidden_size: int, bidirectional: bool):
         """Create embedding using "GRU" and global average pooling along "temporal axis".
 
         Args:
@@ -20,7 +20,7 @@ class RNNEmbedding(nn.Module):
         """
 
         super(RNNEmbedding, self).__init__()
-        self.rnn = nn.GRU(input_size, hidden_size , batch_first=True, bidirectional=True)
+        self.rnn = nn.GRU(input_size, hidden_size , batch_first=True, bidirectional=bidirectional)
 
     def forward(self, x: torch.Tensor, lengths: List[int]):
         """_summary_
@@ -81,7 +81,7 @@ class CNNEmbedding(nn.Module):
 
 
 class VideoEncoder(nn.Module):
-    def __init__(self, frame_feature_dim, rnn_hidden_size, cnn_out_channels_list, cnn_filter_size_list):
+    def __init__(self, frame_feature_dim, rnn_hidden_size, rnn_bidirectional, cnn_out_channels_list, cnn_filter_size_list):
         """Video Encoder.
 
         Args:
@@ -96,14 +96,16 @@ class VideoEncoder(nn.Module):
 
         self.frame_feature_dim = frame_feature_dim
         self.rnn_hidden_size = rnn_hidden_size
+        self.rnn_bidirectional = rnn_bidirectional
         self.cnn_out_channels_list = cnn_out_channels_list
         self.cnn_filter_size_list = cnn_filter_size_list
 
-        self.out_dim = frame_feature_dim + 2 * rnn_hidden_size + sum(cnn_out_channels_list)
+        rnn_out_size = 2*rnn_hidden_size if rnn_bidirectional else rnn_hidden_size
 
-        self.rnn_embedding = RNNEmbedding(frame_feature_dim, rnn_hidden_size)
-        self.cnn_embedding = CNNEmbedding(2*rnn_hidden_size, cnn_out_channels_list, cnn_filter_size_list)
+        self.rnn_embedding = RNNEmbedding(frame_feature_dim, rnn_hidden_size, bidirectional=rnn_bidirectional)
+        self.cnn_embedding = CNNEmbedding(rnn_out_size, cnn_out_channels_list, cnn_filter_size_list)
 
+        self.out_dim = frame_feature_dim + rnn_out_size + sum(cnn_out_channels_list)
 
 
     def forward(self, x: torch.Tensor, true_lens: List[int]):
@@ -141,7 +143,7 @@ class VideoEncoder(nn.Module):
 
 
 class TextEncoder(nn.Module):
-    def __init__(self, vocab_size, rnn_hidden_size, cnn_out_channels_list, cnn_filter_size_list, *, pretrained_weight=None, word_embedding_dim=500):
+    def __init__(self, vocab_size, rnn_hidden_size, rnn_bidirectional, cnn_out_channels_list, cnn_filter_size_list, *, pretrained_weight=None, word_embedding_dim=500):
         """Text encoder.
 
         Args:
@@ -159,9 +161,12 @@ class TextEncoder(nn.Module):
 
         self.vocab_size = vocab_size
         self.rnn_hidden_size = rnn_hidden_size
+        self.rnn_bidirectional = rnn_bidirectional
         self.cnn_out_channels_list = cnn_out_channels_list
         self.cnn_filter_size_list = cnn_filter_size_list
         self.pretrained_weight = pretrained_weight
+
+        rnn_out_size = 2*rnn_hidden_size if rnn_bidirectional else rnn_hidden_size
 
         if pretrained_weight is None:
             self.embedding = nn.Embedding(self.vocab_size, word_embedding_dim, padding_idx=Vocab.PAD_IDX)
@@ -169,10 +174,10 @@ class TextEncoder(nn.Module):
         else:
             self.embedding = nn.Embedding.from_pretrained(torch.tensor(pretrained_weight), freeze=False, padding_idx=Vocab.PAD_IDX)
 
-        self.rnn_embedding = RNNEmbedding(self.embedding.embedding_dim, rnn_hidden_size)
-        self.cnn_embedding = CNNEmbedding(2*rnn_hidden_size, cnn_out_channels_list, cnn_filter_size_list)
+        self.rnn_embedding = RNNEmbedding(self.embedding.embedding_dim, rnn_hidden_size, bidirectional=rnn_bidirectional)
+        self.cnn_embedding = CNNEmbedding(rnn_out_size, cnn_out_channels_list, cnn_filter_size_list)
 
-        self.out_dim = vocab_size + 2 * rnn_hidden_size + sum(cnn_out_channels_list)
+        self.out_dim = vocab_size + rnn_out_size + sum(cnn_out_channels_list)
 
     def forward(self, x: torch.Tensor, true_lens: List[int]):
         """_summary_
@@ -422,6 +427,7 @@ class HybridDualEncoding(nn.Module):
                 # video
                 frame_feature_dim,
                 vid_rnn_hidden_size,
+                vid_rnn_bidirectional,
                 vid_cnn_out_channels_list,
                 vid_cnn_filter_size_list,
                 vid_dp_rate_lat,
@@ -429,6 +435,7 @@ class HybridDualEncoding(nn.Module):
                 # text
                 vocab_size,
                 text_rnn_hidden_size,
+                text_rnn_bidirectional,
                 text_cnn_out_channels_list,
                 text_cnn_filter_size_list,
                 text_dp_rate_lat,
@@ -441,8 +448,8 @@ class HybridDualEncoding(nn.Module):
         self.tag_vocab_size = tag_vocab_size
         self.alpha = alpha
 
-        self.video_encoder = VideoEncoder(frame_feature_dim, vid_rnn_hidden_size, vid_cnn_out_channels_list, vid_cnn_filter_size_list)
-        self.text_encoder = TextEncoder(vocab_size, text_rnn_hidden_size, text_cnn_out_channels_list, text_cnn_filter_size_list, pretrained_weight=pretrained_weight)
+        self.video_encoder = VideoEncoder(frame_feature_dim, vid_rnn_hidden_size, vid_rnn_bidirectional, vid_cnn_out_channels_list, vid_cnn_filter_size_list)
+        self.text_encoder = TextEncoder(vocab_size, text_rnn_hidden_size, text_rnn_bidirectional, text_cnn_out_channels_list, text_cnn_filter_size_list, pretrained_weight=pretrained_weight)
         self.space_lat = LatentSpace(embed_dim_lat, self.video_encoder.out_dim, vid_dp_rate_lat, self.text_encoder.out_dim, text_dp_rate_lat)
         self.space_con = ConceptSpace(tag_vocab_size, self.video_encoder.out_dim, vid_dp_rate_con, self.text_encoder.out_dim, text_dp_rate_con)
 
@@ -499,6 +506,7 @@ class HybridDualEncoding(nn.Module):
             # video
             'frame_feature_dim': self.video_encoder.frame_feature_dim,
             'vid_rnn_hidden_size': self.video_encoder.rnn_hidden_size ,
+            'vid_rnn_bidirectional': self.video_encoder.rnn_bidirectional,
             'vid_cnn_out_channels_list': self.video_encoder.cnn_out_channels_list ,
             'vid_cnn_filter_size_list': self.video_encoder.cnn_filter_size_list ,
             'vid_dp_rate_lat': self.space_lat.video_dp_rate,
@@ -506,6 +514,7 @@ class HybridDualEncoding(nn.Module):
             # text
             'vocab_size': self.text_encoder.vocab_size,
             'text_rnn_hidden_size': self.text_encoder.rnn_hidden_size,
+            'text_rnn_bidirectional': self.text_encoder.rnn_bidirectional,
             'text_cnn_out_channels_list': self.text_encoder.cnn_out_channels_list,
             'text_cnn_filter_size_list': self.text_encoder.cnn_filter_size_list,
             'text_dp_rate_lat': self.space_lat.text_dp_rate,
