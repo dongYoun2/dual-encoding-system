@@ -23,6 +23,7 @@ def create_model_from_config(config):
         # video encoder
         frame_feature_dim=video_bundle.frame_feature_dim,
         vid_rnn_hidden_size=config['vid_rnn_hidden_size'],
+        vid_rnn_bidirectional=config['vid_rnn_bidirectional'],
         vid_cnn_out_channels_list=config['vid_cnn_out_channels'],
         vid_cnn_filter_size_list=config['vid_cnn_filter_size'],
         vid_dp_rate_lat=config['vid_dp_rate_lat'],
@@ -30,6 +31,7 @@ def create_model_from_config(config):
         # text encoder
         vocab_size=len(vocab),
         text_rnn_hidden_size=config['text_rnn_hidden_size'],
+        text_rnn_bidirectional=config['text_rnn_bidirectional'],
         text_cnn_out_channels_list=config['text_cnn_out_channels'],
         text_cnn_filter_size_list=config['text_cnn_filter_size'],
         text_dp_rate_lat=config['text_dp_rate_lat'],

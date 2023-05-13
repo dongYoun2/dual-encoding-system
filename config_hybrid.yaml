@@ -10,6 +10,7 @@ tag_vocab_file: 'tag_vocab.json'
 # --video encoder--
 # frame_feature_dim: 4096. Second dim of shape in video_feature_dir's shape.txt. Dynamically inferred.
 vid_rnn_hidden_size: 512
+vid_rnn_bidirectional: false
 vid_cnn_out_channels: [512, 512, 512, 512]
 vid_cnn_filter_size: [2, 3, 4, 5]
 vid_dp_rate_lat: 0.2
@@ -18,6 +19,7 @@ vid_dp_rate_con: 0.2
 # --text_encoder--
 # vocab_size: len(vocab). Dynamically inferred.
 text_rnn_hidden_size: 512
+text_rnn_bidirectional: true
 text_cnn_out_channels: [512, 512, 512]
 text_cnn_filter_size: [2, 3, 4]
 text_dp_rate_lat: 0.2
