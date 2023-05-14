@@ -1,11 +1,11 @@
-from typing import List, Tuple, Dict, Union
+from typing import List, Tuple
 from collections import defaultdict
 import math
 
 import torch
 import numpy as np
 
-from model import HybridDualEncoding, LatentDualEncoding
+from model import HybridDualEncoding
 from dataset import VideoBundle, CaptionBundle
 import utils
 
@@ -53,7 +53,7 @@ def _eval_q2m(scores: np.ndarray, gt: List[List[int]]) -> Tuple[Tuple[float, flo
 
 # batch_size == -1 for global batch size
 @torch.no_grad()
-def evaluate(model: Union[HybridDualEncoding, LatentDualEncoding], video_bundle: VideoBundle, cap_bundle: CaptionBundle, batch_size=-1):
+def evaluate(model: HybridDualEncoding, video_bundle: VideoBundle, cap_bundle: CaptionBundle, batch_size=-1):
     was_training = model.training
 
     model.eval()
