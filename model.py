@@ -11,7 +11,7 @@ from vocab import Vocab
 
 
 class RNNEmbedding(nn.Module):
-    def __init__(self, input_size: int, hidden_size: int, bidirectional: bool):
+    def __init__(self, input_size: int, hidden_size: int, bidirectional: bool=False):
         """Create embedding using "GRU" and global average pooling along "temporal axis".
 
         Args:
@@ -362,61 +362,6 @@ class ConceptSpace(nn.Module):
         loss = loss1 + loss2
 
         return loss
-
-
-class LatentDualEncoding(nn.Module):
-    def __init__(self,
-                embed_dim,
-                # video
-                frame_feature_dim,
-                vid_rnn_hidden_size,
-                vid_cnn_out_channels_list,
-                vid_cnn_filter_size_list,
-                vid_dp_rate,
-                # text
-                vocab_size,
-                text_rnn_hidden_size,
-                text_cnn_out_channels_list,
-                text_cnn_filter_size_list,
-                text_dp_rate,
-                pretrained_weight=None,
-                ):
-        super(LatentDualEncoding, self).__init__()
-
-        self.video_encoder = VideoEncoder(frame_feature_dim, vid_rnn_hidden_size, vid_cnn_out_channels_list, vid_cnn_filter_size_list)
-        self.text_encoder = TextEncoder(vocab_size, text_rnn_hidden_size, text_cnn_out_channels_list, text_cnn_filter_size_list, pretrained_weight=pretrained_weight)
-        self.common_space = LatentSpace(embed_dim, self.video_encoder.out_dim, vid_dp_rate, self.text_encoder.out_dim, text_dp_rate)
-
-    def encode_video(self, video, true_lens, l2_normalize=True):      # (B, L, frame_feature_dim)
-        out = self.video_encoder(video, true_lens)
-        out = self.common_space.project_video(out, l2_normalize=l2_normalize)
-
-        return out  # (B_v, embed_dim)
-
-    def encode_text(self, text, true_lens, l2_normalize=True):  # (B, L)
-        out = self.text_encoder(text, true_lens)
-        out = self.common_space.project_text(out, l2_normalize=l2_normalize)
-
-        return out  # (B_t, embed_dim)
-
-    # calc logits (cos sim. as logits)
-    def forward(self, video, vid_true_lens, text, text_true_lens):
-        vid_out = self.video_encoder(video, vid_true_lens)
-        text_out = self.text_encoder(text, text_true_lens)
-        logits, logits_T = self.common_space.compute_sim(vid_out, text_out)
-
-        return logits, logits_T # (B_v, B_t), (B_t, B_v)
-
-    def forward_loss(self, video, vid_true_lens, text, text_true_lens):
-        vid_out = self.video_encoder(video, vid_true_lens)
-        text_out = self.text_encoder(text, text_true_lens)
-        loss = self.common_space.compute_loss(vid_out, text_out)
-
-        return loss
-
-    @property
-    def device(self) -> torch.device:
-        return self.video_encoder.device
 
 
 class HybridDualEncoding(nn.Module):

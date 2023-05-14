@@ -7,7 +7,7 @@ import numpy as np
 
 from model import (
     RNNEmbedding, CNNEmbedding, TextEncoder, VideoEncoder,
-    LatentDualEncoding, HybridDualEncoding
+    HybridDualEncoding
 )
 from dataset import (
     VideoBundle, CaptionBundle, VideoCaptionDataset, VideoCaptionTagDataset,
@@ -50,7 +50,7 @@ def sc_RNNEmbedding():
     x = torch.rand((batch_size, input_len, feature_size))
     true_lens = sorted([input_len] + [random.randrange(1, input_len+1) for _ in range(batch_size-1)], reverse=True)
 
-    net = RNNEmbedding(feature_size, hidden_size)
+    net = RNNEmbedding(feature_size, hidden_size, bidirectional=True)
     out, emb = net(x, true_lens)
 
     assert_('output shape', actual=out.shape, expected=(batch_size, input_len, 2*hidden_size))
@@ -78,6 +78,7 @@ def sc_CNNEmbedding():
 def sc_VideoEncoder():
     frame_feature_dim = 10
     rnn_hidden_size = 5
+    rnn_bidirectional = True
     cnn_out_channels_list = [3, 5, 6, 9]
     cnn_filter_size_list = [2, 3, 4, 5]
 
@@ -89,7 +90,7 @@ def sc_VideoEncoder():
         mask[i][:true_lens[i]] = 1
     input = input * mask
 
-    encoder = VideoEncoder(frame_feature_dim, rnn_hidden_size, cnn_out_channels_list, cnn_filter_size_list)
+    encoder = VideoEncoder(frame_feature_dim, rnn_hidden_size, rnn_bidirectional, cnn_out_channels_list, cnn_filter_size_list)
 
     emb = encoder(input, true_lens)
     actual_shape = emb.shape
@@ -113,6 +114,7 @@ def sc_VideoEncoder():
 def sc_TextEncoder():
     vocab_size = 10
     rnn_hidden_size = 5
+    rnn_bidirectional = True
     cnn_out_channels_list = [3, 5, 6]
     cnn_filter_size_list = [2, 3, 4]
 
@@ -134,10 +136,10 @@ def sc_TextEncoder():
         expected_shape = (batch_size, vocab_size + 2*rnn_hidden_size + sum(cnn_out_channels_list))
         assert_(assertion_val_desc, actual=actual_shape, expected=expected_shape)
 
-    encoder1 = TextEncoder(vocab_size, rnn_hidden_size, cnn_out_channels_list, cnn_filter_size_list)
+    encoder1 = TextEncoder(vocab_size, rnn_hidden_size, rnn_bidirectional, cnn_out_channels_list, cnn_filter_size_list)
     template(encoder1, input, 'output of TextEncoder(cpu) (no pretrained weight ver.) shape')
 
-    encoder2 = TextEncoder(vocab_size, rnn_hidden_size, cnn_out_channels_list, cnn_filter_size_list, pretrained_weight=pretrained_w)
+    encoder2 = TextEncoder(vocab_size, rnn_hidden_size, rnn_bidirectional, cnn_out_channels_list, cnn_filter_size_list, pretrained_weight=pretrained_w)
     template(encoder2, input, 'output of TextEncoder(cpu) (init with pretrained weight ver.) shape')
 
     mps_dev = torch.device('mps:0')
@@ -343,66 +345,6 @@ def sc_vid_cap_tag_data_loader():
     print('sc_vid_cap_tag_data_loader() passed!')
 
 
-def sc_LatentDualEncoding():
-    batch_size=3
-    frame_feat_dim = 8
-    vocab_size = 8
-
-    vid_true_lens = [8, 6, 4]   # input of vid_encoder, has to be sorted in descending order
-    vid_input = torch.randn((batch_size, max(vid_true_lens), frame_feat_dim))
-    mask = torch.zeros_like(vid_input)
-    for i in range(batch_size):
-        mask[i][:vid_true_lens[i]] = 1
-    vid_input = vid_input * mask
-
-    cap_true_lens = [7, 5, 3]   # input of text_encoder, has to be sorted in descending order
-    cap_input = torch.randint(low=0, high=vocab_size, size=(batch_size, max(cap_true_lens)))
-    mask = torch.zeros_like(cap_input)
-    for i in range(batch_size):
-        mask[i][:cap_true_lens[i]] = 1
-    cap_input = cap_input * mask
-
-    model = LatentDualEncoding(
-        embed_dim=4,
-
-        frame_feature_dim=frame_feat_dim,
-        vid_rnn_hidden_size=3,
-        vid_cnn_out_channels_list=[5, 7],
-        vid_cnn_filter_size_list=[3, 4],
-        vid_dp_rate=0.2,
-
-        vocab_size=vocab_size,
-        text_rnn_hidden_size=4,
-        text_cnn_out_channels_list=[3, 6],
-        text_cnn_filter_size_list=[2, 3],
-        text_dp_rate=0.2,
-        pretrained_weight = np.load('pretrained_weight.npy'),
-    )
-
-    sim, sim_T = model(vid_input, vid_true_lens, cap_input, cap_true_lens)
-    assert_('similarity matrix shape check of latent dual encoding system (cpu)', actual=sim.shape, expected=(batch_size, batch_size))
-
-    loss = model.forward_loss(vid_input, vid_true_lens, cap_input, cap_true_lens)
-    assert_('loss of latent dual encoding system (cpu)', bool_exp=not loss.isnan())
-
-    mps_dev = torch.device('mps')
-    model.to(mps_dev)
-
-    vid_input = vid_input.to(mps_dev)
-    cap_input = cap_input.to(mps_dev)
-
-    sim, sim_T = model(vid_input, vid_true_lens, cap_input, cap_true_lens)
-    assert_('similarity matrix shape check of latent dual encoding system (mps)', actual=sim.shape, expected=(batch_size, batch_size))
-
-    loss = model.forward_loss(vid_input, vid_true_lens, cap_input, cap_true_lens)
-    assert_('loss of latent dual encoding system (mps)', bool_exp=not loss.isnan())
-
-    param_no_nan = all([not bool(param.isnan().any()) for param in model.parameters()])
-    assert_('latent dual encoding system (mps) all params nan check', bool_exp=param_no_nan)
-
-    print('sc_LatentDualEncoding() passed!')
-
-
 def sc_HybridDualEncoding():
     batch_size=3
     frame_feat_dim = 20
@@ -435,6 +377,7 @@ def sc_HybridDualEncoding():
 
         frame_feature_dim=frame_feat_dim,
         vid_rnn_hidden_size=3,
+        vid_rnn_bidirectional=False,
         vid_cnn_out_channels_list=[5, 7],
         vid_cnn_filter_size_list=[3, 4],
         vid_dp_rate_lat=0.2,
@@ -442,6 +385,7 @@ def sc_HybridDualEncoding():
 
         vocab_size=vocab_size,
         text_rnn_hidden_size=4,
+        text_rnn_bidirectional=True,
         text_cnn_out_channels_list=[3, 6],
         text_cnn_filter_size_list=[2, 3],
         text_dp_rate_lat=0.2,
@@ -488,5 +432,4 @@ if __name__ == '__main__':
     sc_vid_cap_data_loader()
     sc_vid_cap_tag_data_loader()
 
-    sc_LatentDualEncoding()
     sc_HybridDualEncoding()
