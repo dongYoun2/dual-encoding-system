@@ -1,14 +1,17 @@
-from typing import List, Dict
+from typing import List, Dict, Union
+from functools import singledispatch
 
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torch.nn.utils.rnn import pad_packed_sequence, pack_padded_sequence
+import yaml
+import numpy as np
 
 import utils
 from measure import cosine_similarity, jaccard_similarity
 from vocab import Vocab
-
+from dataset import VideoBundle, VideoTag
 
 class RNNEmbedding(nn.Module):
     def __init__(self, input_size: int, hidden_size: int, bidirectional: bool=False):
@@ -472,7 +475,7 @@ class HybridDualEncoding(nn.Module):
 
     @staticmethod
     def load(model_path: str, device):
-        model_dict = torch.load(model_path, map_location=lambda storage, loc: storage)
+        model_dict = torch.load(model_path, map_location=torch.device('cpu'))
         model = HybridDualEncoding(**model_dict['args'])
         model.load_state_dict(model_dict['state_dict'])
         model.to(device)
@@ -482,3 +485,55 @@ class HybridDualEncoding(nn.Module):
     @property
     def device(self) -> torch.device:
         return self.video_encoder.device
+
+
+@singledispatch
+def hybrid_dual_encoding_from_config(config: Union[str, Dict]) -> HybridDualEncoding:
+    raise NotImplementedError(f"invalid type : {type(config)}")
+
+
+@hybrid_dual_encoding_from_config.register(str)
+def _(conf_file):
+    with open(conf_file, 'r') as f:
+        config: Dict = yaml.safe_load(f)
+
+    model = hybrid_dual_encoding_from_config(config)
+
+    return model
+
+
+@hybrid_dual_encoding_from_config.register(dict)
+def _(config):
+    video_bundle = VideoBundle(config['video_feature_dir'])
+    vocab = Vocab.load(config['vocab_file'])
+    video_tag = VideoTag(config['tag_annotation_file'], config['tag_vocab_file'])
+
+    model = HybridDualEncoding(
+        # space config
+        embed_dim_lat=config['embed_dim_lat'],
+        tag_vocab_size=video_tag.tag_vocab_len(),
+        alpha=config['alpha'],
+        # video encoder
+        frame_feature_dim=video_bundle.frame_feature_dim,
+        vid_rnn_hidden_size=config['vid_rnn_hidden_size'],
+        vid_rnn_bidirectional=config['vid_rnn_bidirectional'],
+        vid_cnn_out_channels_list=config['vid_cnn_out_channels'],
+        vid_cnn_filter_size_list=config['vid_cnn_filter_size'],
+        vid_dp_rate_lat=config['vid_dp_rate_lat'],
+        vid_dp_rate_con=config['vid_dp_rate_con'],
+        # text encoder
+        vocab_size=len(vocab),
+        text_rnn_hidden_size=config['text_rnn_hidden_size'],
+        text_rnn_bidirectional=config['text_rnn_bidirectional'],
+        text_cnn_out_channels_list=config['text_cnn_out_channels'],
+        text_cnn_filter_size_list=config['text_cnn_filter_size'],
+        text_dp_rate_lat=config['text_dp_rate_lat'],
+        text_dp_rate_con=config['text_dp_rate_con'],
+        pretrained_weight=np.load(config['pretrained_weight_file'])
+    )
+
+    del video_bundle
+    del vocab
+    del video_tag
+
+    return model
