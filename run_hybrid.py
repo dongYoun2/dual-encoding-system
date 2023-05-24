@@ -54,7 +54,7 @@ def train_process(config, args):
     model.to(args.device)
     optimizer = optim.Adam(model.parameters(), config['lr'])
 
-    best_t2v_sum_r = 0.0
+    best_val_metric = 0.0
     patience = 0
 
     print('-'*100)
@@ -63,8 +63,8 @@ def train_process(config, args):
         train(config, args, model, train_loader, optimizer, epoch, train_logger)
 
         if epoch % config['val_n_epoch'] == 0:
-            best_t2v_sum_r, patience = validate(config, args, model, video_bundle, val_cap_bundle, optimizer, epoch,
-                                            val_logger, best_t2v_sum_r, patience, test_cap_bundle, test_logger)
+            best_val_metric, patience = validate(config, args, model, video_bundle, val_cap_bundle, optimizer, epoch,
+                                            val_logger, best_val_metric, patience, test_cap_bundle, test_logger)
 
     print('-'*100)
     print(f'train finished, reached to maximum epoch {config["max_epoch"]}')
@@ -116,7 +116,7 @@ def train(config, args, model, train_loader, optimizer, epoch, logger):
     logger.write(['epoch level\t', 'epoch: ', epoch, 'loss: ', losses.val, 'epoch time', batch_time.sum])
 
 
-def validate(config, args, model, video_bundle, val_cap_bundle, optimizer, epoch, logger, best_t2v_sum_r, patience,
+def validate(config, args, model, video_bundle, val_cap_bundle, optimizer, epoch, logger, best_val_metric, patience,
              test_cap_bundle, test_logger):
     print('-'*100)
     print(f"validation starting")
@@ -138,8 +138,18 @@ def validate(config, args, model, video_bundle, val_cap_bundle, optimizer, epoch
     print('text to video: ')
     print(' '.join(str(e) for e in t2v_l))
 
-    if val_t2v_sum_r >= best_t2v_sum_r: # val perf. increased
-        best_t2v_sum_r = val_t2v_sum_r
+    print('using val_metirc: ', config['val_metric'])
+
+    # set appropriate val metric based on config
+    if config['val_metric'] == 'v2t_sum_r':
+        val_metric = val_v2t_sum_r
+    elif config['val_metric'] == 't2v_sum_r':
+        val_metric = val_t2v_sum_r
+    elif config['val_metric'] == 'total_sum_r':
+        val_metric = val_v2t_sum_r + val_t2v_sum_r
+
+    if val_metric >= best_val_metric: # val perf. increased
+        best_val_metric = val_metric
 
         # save current best model
         os.makedirs(os.path.dirname(args.model_path), exist_ok=True)
@@ -151,7 +161,7 @@ def validate(config, args, model, video_bundle, val_cap_bundle, optimizer, epoch
         # also save the epoch, val best t2v sum_r, patience, optimizers' state
         checkpoint_dict = {
             'epoch': epoch,
-            'best_t2v_sum_r': best_t2v_sum_r,
+            f"best_{config['val_metric']}": best_val_metric,
             'patience': patience,
             'optim_state_dict': optimizer.state_dict(),
         }
@@ -194,7 +204,7 @@ def validate(config, args, model, video_bundle, val_cap_bundle, optimizer, epoch
 
     print(f"validation finished")
 
-    return best_t2v_sum_r, patience
+    return best_val_metric, patience
 
 
 def test(config, args, model, video_bundle, test_cap_bundle, logger):

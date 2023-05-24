@@ -10,7 +10,7 @@ tag_vocab_file: 'tag_vocab.json'
 # --video encoder--
 # frame_feature_dim: 4096. Second dim of shape in video_feature_dir's shape.txt. Dynamically inferred.
 vid_rnn_hidden_size: 512
-vid_rnn_bidirectional: false
+vid_rnn_bidirectional: true
 vid_cnn_out_channels: [512, 512, 512, 512]
 vid_cnn_filter_size: [2, 3, 4, 5]
 vid_dp_rate_lat: 0.2
@@ -29,7 +29,7 @@ pretrained_weight_file: 'pretrained_weight.npy'  # word2vec embedding numpy file
 # --common space config--
 embed_dim_lat: 1536 # 2048 - 512
 # embed_dim_con  # 512 == tag_vocab_size, dynamically inferred
-alpha: 0.2
+alpha: 0.6
 
 # --train config--
 batch_size: 128
@@ -38,6 +38,7 @@ lr: 0.0001
 shuffle_data: true
 grad_clip: 2
 val_n_epoch: 1
+val_metric: 'total_sum_r' # 't2v_sum_r' | 'v2t_sum_r' | 'total_sum_r'
 lr_decay_rate: 0.99
 lr_decay_patience_cnt: 3 # lr <- lr * 'lr_decay_patience_rate', when val perf. doesn't increase until 'lr_decay_patience_cnt' consecutive validations
 lr_decay_patience_rate: 0.5
