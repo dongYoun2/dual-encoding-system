@@ -1,8 +1,9 @@
 __pycache__/
+.DS_Store
 
 data/
 vocab.json
-pretraine_weight.npy
+pretrained_weight.npy
 tag_vocab.json
 video_tag.txt
 
