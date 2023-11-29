@@ -78,10 +78,10 @@ data
 You can check out commands in `run.sh`.
 
 ## Proposed Framework
-![image](imgs/framework.png)
+![image](docs/framework.png)
 
 ## Results
-![image](imgs/result_table.png)
+![image](docs/result_table.png)
 - Larger R@Ks and sum R, and smaller mean r represent better performance.
 - [B] shows considerable performance improvement compared to Dual Encoding.
 - Final optimized models [E] and [F] have smaller sizes and better overall performance than Dual Encoding.
