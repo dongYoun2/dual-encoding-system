@@ -25,8 +25,8 @@ def jaccard_similarity(x: torch.Tensor, y: torch.Tensor):   # (B_x, E), (B_y, E)
     x_ = x.unsqueeze(1).expand(-1, y_batch_size, -1)    # (B_x, B_y, E)
     y_ = y.unsqueeze(0).expand(x_batch_size, -1, -1)    # (B_x, B_y, E)
 
-    intersection = torch.min(x_, y_).sum(dim=-1)    # (B_x, B_y)
-    union = torch.max(x_, y_).sum(dim=-1) # (B_x, B_y)
+    intersection = torch.minimum(x_, y_).sum(dim=-1)    # (B_x, B_y)
+    union = torch.maximum(x_, y_).sum(dim=-1) # (B_x, B_y)
 
     sim = intersection / union
 
